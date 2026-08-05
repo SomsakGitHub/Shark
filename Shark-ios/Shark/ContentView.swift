@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @State private var items: [Item] = []
+    @State private var errorMessage: String?
+    @State private var isLoading = false
+
+    private let client = APIClient()
 
     var body: some View {
         NavigationSplitView {
@@ -24,6 +26,9 @@ struct ContentView: View {
                 }
                 .onDelete(perform: deleteItems)
             }
+            .refreshable {
+                await loadItems()
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     EditButton()
@@ -34,22 +39,61 @@ struct ContentView: View {
                     }
                 }
             }
+            .overlay {
+                if let errorMessage {
+                    ContentUnavailableView {
+                        Label("Connection Error", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("Retry") {
+                            Task { await loadItems() }
+                        }
+                    }
+                } else if items.isEmpty && isLoading {
+                    ProgressView("Loading…")
+                }
+            }
         } detail: {
             Text("Select an item")
+        }
+        .task {
+            await loadItems()
+        }
+    }
+
+    private func loadItems() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            items = try await client.fetchItems()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
     private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+        Task {
+            do {
+                let newItem = try await client.createItem(timestamp: Date())
+                items.insert(newItem, at: 0)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+        let ids = offsets.map { items[$0].id }
+        Task {
+            do {
+                for id in ids {
+                    try await client.deleteItem(id: id)
+                }
+                items.remove(atOffsets: offsets)
+            } catch {
+                errorMessage = error.localizedDescription
             }
         }
     }
@@ -57,5 +101,4 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

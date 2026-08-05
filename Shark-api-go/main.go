@@ -4,7 +4,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
+
+func withLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
+}
 
 func main() {
 	store := NewItemStore()
@@ -20,7 +29,7 @@ func main() {
 	}
 
 	log.Printf("Shark API listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, withLogging(mux)); err != nil {
 		log.Fatal(err)
 	}
 }
