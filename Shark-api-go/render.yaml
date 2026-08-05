@@ -3,7 +3,8 @@ services:
     name: shark-api
     runtime: docker
     plan: free
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./Shark-api-go/Dockerfile
+    dockerContext: ./Shark-api-go
     healthCheckPath: /health
     autoDeploy: true
     envVars:
