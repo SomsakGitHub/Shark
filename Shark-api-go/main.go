@@ -22,6 +22,7 @@ func main() {
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("/items/", itemHandler(store))
 	mux.HandleFunc("/items", itemsHandler(store))
+	mux.Handle("GET /videos/", http.StripPrefix("/videos/", http.FileServer(http.Dir("MP4"))))
 
 	port := os.Getenv("PORT")
 	if port == "" {

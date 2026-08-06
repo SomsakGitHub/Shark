@@ -83,16 +83,16 @@ struct VideoPageView: View {
     }
 
     private func setupPlayerIfNeeded() {
-        guard player == nil,
-              let url = Bundle.main.url(forResource: video.fileName, withExtension: "mp4") else {
+        guard player == nil else {
             return
         }
-        let item = AVPlayerItem(url: url)
+        let asset = AVURLAsset(url: video.videoURL)
+        let item = AVPlayerItem(asset: asset)
         let queuePlayer = AVQueuePlayer()
         let looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
         self.looper = looper
         self.player = queuePlayer
-        Logger.view.info("VideoPage \(self.video.fileName) setup isActive=\(self.isActive) url=\(url.path)")
+        Logger.view.info("VideoPage \(self.video.fileName) setup isActive=\(self.isActive) url=\(asset.url.absoluteString)")
         #if DEBUG
         queuePlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 2, preferredTimescale: 600), queue: .main) { time in
             Logger.view.info("Playback \(self.video.fileName) t=\(time.seconds, privacy: .public)s rate=\(queuePlayer.rate)")

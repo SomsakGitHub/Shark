@@ -11,9 +11,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /shark-api .
 FROM alpine:3.20
 
 RUN adduser -D -H -u 10001 appuser
-USER appuser
+WORKDIR /app
 
 COPY --from=builder /shark-api /shark-api
+COPY MP4 ./MP4
+
+USER appuser
 
 EXPOSE 8080
 

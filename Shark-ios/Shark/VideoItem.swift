@@ -17,6 +17,10 @@ struct VideoItem: Identifiable {
     let shares: Int
     let music: String
 
+    var videoURL: URL {
+        URL(string: "\(APIConfig.baseURL)/videos/\(fileName).mp4")!
+    }
+
     static let mockData: [VideoItem] = [
         VideoItem(
             id: "1",
