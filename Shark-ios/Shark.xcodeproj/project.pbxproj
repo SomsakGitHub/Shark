@@ -30,7 +30,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		069B4407302390920082635A /* Exceptions for "Info.plist" */ = {
+		069B4407302390920082635A /* Exceptions for "Shark" folder in "Shark" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -43,7 +43,7 @@
 		069B4406302390920082635A /* Shark */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				069B4407302390920082635A /* Exceptions for "Info.plist" */,
+				069B4407302390920082635A /* Exceptions for "Shark" folder in "Shark" target */,
 			);
 			path = Shark;
 			sourceTree = "<group>";

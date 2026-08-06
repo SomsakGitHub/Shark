@@ -6,12 +6,17 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 @main
 struct SharkApp: App {
+    init() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            VideoFeedView()
         }
     }
 }
