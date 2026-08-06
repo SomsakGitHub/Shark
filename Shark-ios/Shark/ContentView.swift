@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os
 
 struct ContentView: View {
     @State private var items: [Item] = []
@@ -52,7 +53,21 @@ struct ContentView: View {
                     }
                 } else if items.isEmpty && isLoading {
                     ProgressView("Loading…")
+                } else if items.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Items", systemImage: "tray")
+                    } description: {
+                        Text("Tap + to add your first item.")
+                    }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Text("\(statusText)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(.thinMaterial)
             }
         } detail: {
             Text("Select an item")
@@ -62,14 +77,26 @@ struct ContentView: View {
         }
     }
 
+    private var statusText: String {
+        if isLoading {
+            return "Loading…"
+        }
+        if let errorMessage {
+            return errorMessage
+        }
+        return "\(items.count) item(s) · \(APIConfig.baseURL.absoluteString)"
+    }
+
     private func loadItems() async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         do {
             items = try await client.fetchItems()
+            Logger.view.info("Loaded \(self.items.count, privacy: .public) items")
         } catch {
             errorMessage = error.localizedDescription
+            Logger.view.error("Failed to load items: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -78,8 +105,10 @@ struct ContentView: View {
             do {
                 let newItem = try await client.createItem(timestamp: Date())
                 items.insert(newItem, at: 0)
+                Logger.view.info("Created item \(newItem.id, privacy: .public)")
             } catch {
                 errorMessage = error.localizedDescription
+                Logger.view.error("Failed to create item: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -92,8 +121,10 @@ struct ContentView: View {
                     try await client.deleteItem(id: id)
                 }
                 items.remove(atOffsets: offsets)
+                Logger.view.info("Deleted items \(ids, privacy: .public)")
             } catch {
                 errorMessage = error.localizedDescription
+                Logger.view.error("Failed to delete item: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
