@@ -28,11 +28,7 @@ struct VideoFeedView: View {
         .ignoresSafeArea()
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
-        .onChange(of: currentVideoID) { _, newID in
-            Logger.view.info("Feed currentVideoID -> \(String(describing: newID))")
-        }
         .onAppear {
-            Logger.view.info("Feed onAppear currentVideoID=\(String(describing: currentVideoID))")
             if currentVideoID == nil {
                 currentVideoID = videos.first?.id
             }
@@ -44,8 +40,16 @@ struct VideoPageView: View {
     let video: VideoItem
     let isActive: Bool
 
+    enum LoadState: Equatable {
+        case idle
+        case loading
+        case ready
+        case failed(String)
+    }
+
     @State private var player: AVQueuePlayer?
     @State private var looper: AVPlayerLooper?
+    @State private var loadState: LoadState = .idle
 
     var body: some View {
         ZStack {
@@ -55,52 +59,107 @@ struct VideoPageView: View {
                 PlayerView(player: player)
             }
 
+            switch loadState {
+            case .idle, .ready:
+                EmptyView()
+            case .loading:
+                ProgressView()
+                    .tint(.white)
+            case .failed(let message):
+                failedView(message)
+            }
+
             videoOverlay
         }
         .ignoresSafeArea()
-        .onAppear {
-            setupPlayerIfNeeded()
-        }
-        .onDisappear {
-            player?.pause()
-        }
         .task(id: isActive) {
             if isActive {
-                Logger.view.info("VideoPage \(video.fileName) play")
-                player?.play()
+                activate()
+                await waitForLoad()
             } else {
-                player?.pause()
+                teardown()
             }
-            #if DEBUG
-            while !Task.isCancelled {
-                if let player {
-                    Logger.view.info("Playback \(self.video.fileName) tcs=\(player.timeControlStatus.rawValue) rate=\(player.rate) t=\(player.currentTime().seconds)")
-                }
-                try? await Task.sleep(for: .seconds(1))
-            }
-            #endif
         }
     }
 
-    private func setupPlayerIfNeeded() {
-        guard player == nil else {
+    private func activate() {
+        if let player {
+            player.play()
             return
         }
+        loadState = .loading
         let asset = AVURLAsset(url: video.videoURL)
         let item = AVPlayerItem(asset: asset)
         let queuePlayer = AVQueuePlayer()
         let looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
         self.looper = looper
-        self.player = queuePlayer
-        Logger.view.info("VideoPage \(self.video.fileName) setup isActive=\(self.isActive) url=\(asset.url.absoluteString)")
-        #if DEBUG
-        queuePlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 2, preferredTimescale: 600), queue: .main) { time in
-            Logger.view.info("Playback \(self.video.fileName) t=\(time.seconds, privacy: .public)s rate=\(queuePlayer.rate)")
+        player = queuePlayer
+        Logger.view.info("VideoPage \(self.video.fileName) activate")
+        queuePlayer.play()
+    }
+
+    private func waitForLoad() async {
+        let startedAt = ContinuousClock.now
+        while !Task.isCancelled {
+            if let looper, looper.status == .failed {
+                let message = looper.error?.localizedDescription ?? "Failed to load video"
+                loadState = .failed(message)
+                Logger.view.info("VideoPage \(self.video.fileName) failed: \(message)")
+                return
+            }
+            if let item = player?.items().first {
+                switch item.status {
+                case .readyToPlay:
+                    loadState = .ready
+                    Logger.view.info("VideoPage \(self.video.fileName) ready")
+                    return
+                case .failed:
+                    let message = item.error?.localizedDescription ?? "Failed to load video"
+                    loadState = .failed(message)
+                    Logger.view.info("VideoPage \(self.video.fileName) failed: \(message)")
+                    return
+                default:
+                    break
+                }
+            }
+            if ContinuousClock.now - startedAt > .seconds(15) {
+                loadState = .failed("Timed out loading video")
+                Logger.view.info("VideoPage \(self.video.fileName) failed: timeout")
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(250))
         }
-        #endif
-        if self.isActive {
-            queuePlayer.play()
+    }
+
+    private func teardown() {
+        player?.pause()
+        looper = nil
+        player = nil
+        loadState = .idle
+        Logger.view.info("VideoPage \(self.video.fileName) teardown")
+    }
+
+    private func retry() {
+        teardown()
+        activate()
+    }
+
+    private func failedView(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 44))
+            Text("Video failed to load")
+                .font(.headline)
+            Text(message)
+                .font(.caption)
+                .multilineTextAlignment(.center)
+            Button("Retry") {
+                retry()
+            }
+            .buttonStyle(.borderedProminent)
         }
+        .foregroundStyle(.white)
+        .padding(24)
     }
 
     private var videoOverlay: some View {
