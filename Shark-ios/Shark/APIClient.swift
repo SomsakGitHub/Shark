@@ -51,8 +51,16 @@ struct APIClient {
         return try await perform(request)
     }
 
-    func fetchVideos() async throws -> [VideoItem] {
-        var request = URLRequest(url: baseURL.appending(path: "videos"))
+    func fetchVideos(offset: Int = 0, limit: Int = 20) async throws -> VideoFeedResponse {
+        var components = URLComponents(
+            url: baseURL.appending(path: "videos"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "offset", value: String(offset)),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         return try await perform(request)
     }
@@ -62,12 +70,14 @@ struct APIClient {
         request.httpMethod = "POST"
         request.httpBody = try encode(["timestamp": timestamp])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(to: &request)
         return try await perform(request)
     }
 
     func deleteItem(id: String) async throws {
         var request = URLRequest(url: baseURL.appending(path: "items/\(id)"))
         request.httpMethod = "DELETE"
+        applyAuth(to: &request)
         Logger.api.info("DELETE \(request.url?.absoluteString ?? "?", privacy: .public)")
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse,
@@ -75,6 +85,12 @@ struct APIClient {
             throw APIError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? -1)
         }
         Logger.api.info("DELETE \(request.url?.absoluteString ?? "?", privacy: .public) -> \(http.statusCode)")
+    }
+
+    private func applyAuth(to request: inout URLRequest) {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "SharkAPIKey") as? String,
+              !key.isEmpty else { return }
+        request.setValue(key, forHTTPHeaderField: "X-API-Key")
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {

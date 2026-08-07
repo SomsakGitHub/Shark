@@ -15,7 +15,12 @@ func itemsHandler(store *ItemStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			writeJSON(w, http.StatusOK, store.List())
+			items, err := store.List()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to list items")
+				return
+			}
+			writeJSON(w, http.StatusOK, items)
 		case http.MethodPost:
 			var req struct {
 				Timestamp time.Time `json:"timestamp"`
@@ -27,7 +32,12 @@ func itemsHandler(store *ItemStore) http.HandlerFunc {
 			if req.Timestamp.IsZero() {
 				req.Timestamp = time.Now()
 			}
-			writeJSON(w, http.StatusCreated, store.Create(req.Timestamp))
+			item, err := store.Create(req.Timestamp)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to create item")
+				return
+			}
+			writeJSON(w, http.StatusCreated, item)
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}

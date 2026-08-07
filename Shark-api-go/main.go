@@ -16,12 +16,16 @@ func withLogging(next http.Handler) http.Handler {
 }
 
 func main() {
-	store := NewItemStore()
+	store, err := NewItemStore()
+	if err != nil {
+		log.Fatalf("initializing store: %v", err)
+	}
+	defer store.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("GET /items/", itemHandler(store))
-	mux.HandleFunc("GET /items", itemsHandler(store))
+	mux.HandleFunc("/items/", itemHandler(store))
+	mux.HandleFunc("/items", itemsHandler(store))
 	mux.HandleFunc("GET /videos", videosHandler)
 	mux.Handle("GET /videos/", http.StripPrefix("/videos/", http.FileServer(http.Dir("MP4"))))
 
@@ -31,7 +35,8 @@ func main() {
 	}
 
 	log.Printf("Shark API listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, withLogging(mux)); err != nil {
+	handler := withLogging(withCORS(withRateLimit(requireWriteKey(mux))))
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		log.Fatal(err)
 	}
 }

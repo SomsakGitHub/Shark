@@ -1,2 +1,4 @@
 /shark-api-go
 *.log
+*.db
+*.db-journal

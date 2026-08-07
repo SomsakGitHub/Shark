@@ -16,9 +16,15 @@ struct VideoFeedView: View {
         case failed(String)
     }
 
+    private static let pageSize = 3
+
     @State private var videos: [VideoItem] = []
     @State private var currentVideoID: String?
     @State private var feedState: FeedState = .loading
+    @State private var isLoadingMore = false
+    @State private var hasMore = true
+
+    private let client = APIClient()
 
     var body: some View {
         Group {
@@ -49,15 +55,22 @@ struct VideoFeedView: View {
     private var feed: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
-                ForEach(videos) { video in
-                    VideoPageView(video: video, isActive: video.id == currentVideoID)
-                        .containerRelativeFrame(.vertical)
+                ForEach(Array(videos.enumerated()), id: \.element.id) { index, video in
+                    VideoPageView(
+                        video: video,
+                        isActive: video.id == currentVideoID,
+                        isPrefetched: shouldPrefetch(index)
+                    )
+                    .containerRelativeFrame(.vertical)
                 }
             }
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentVideoID)
+        .onChange(of: currentVideoID) {
+            loadMoreIfNeeded()
+        }
         .onAppear {
             if currentVideoID == nil {
                 currentVideoID = videos.first?.id
@@ -65,14 +78,43 @@ struct VideoFeedView: View {
         }
     }
 
+    private func shouldPrefetch(_ index: Int) -> Bool {
+        guard let current = currentVideoID,
+              let currentIndex = videos.firstIndex(where: { $0.id == current }) else {
+            return false
+        }
+        return abs(index - currentIndex) <= 1
+    }
+
     private func load() async {
         feedState = .loading
         do {
-            videos = try await APIClient().fetchVideos()
+            let page = try await client.fetchVideos(offset: 0, limit: Self.pageSize)
+            videos = page.videos
+            hasMore = page.hasMore
             currentVideoID = videos.first?.id
             feedState = .loaded
         } catch {
             feedState = .failed(error.localizedDescription)
+        }
+    }
+
+    private func loadMoreIfNeeded() {
+        guard hasMore, !isLoadingMore,
+              let current = currentVideoID,
+              let index = videos.firstIndex(where: { $0.id == current }),
+              index >= videos.count - 1 else { return }
+
+        isLoadingMore = true
+        Task {
+            do {
+                let page = try await client.fetchVideos(offset: videos.count, limit: Self.pageSize)
+                videos.append(contentsOf: page.videos)
+                hasMore = page.hasMore
+            } catch {
+                Logger.view.error("Failed to load more videos: \(error.localizedDescription, privacy: .public)")
+            }
+            isLoadingMore = false
         }
     }
 
@@ -103,6 +145,7 @@ struct VideoFeedView: View {
 struct VideoPageView: View {
     let video: VideoItem
     let isActive: Bool
+    let isPrefetched: Bool
 
     enum LoadState: Equatable {
         case idle
@@ -114,6 +157,10 @@ struct VideoPageView: View {
     @State private var player: AVQueuePlayer?
     @State private var looper: AVPlayerLooper?
     @State private var loadState: LoadState = .idle
+
+    private var shouldLoad: Bool {
+        isActive || isPrefetched
+    }
 
     var body: some View {
         ZStack {
@@ -136,19 +183,25 @@ struct VideoPageView: View {
             videoOverlay
         }
         .ignoresSafeArea()
-        .task(id: isActive) {
-            if isActive {
-                activate()
-                await waitForLoad()
+        .task(id: shouldLoad) {
+            if shouldLoad {
+                await prepare()
+                if isActive {
+                    player?.play()
+                }
             } else {
                 teardown()
             }
         }
+        .task(id: isActive) {
+            if isActive {
+                player?.play()
+            }
+        }
     }
 
-    private func activate() {
-        if let player {
-            player.play()
+    private func prepare() async {
+        if player != nil {
             return
         }
         loadState = .loading
@@ -158,8 +211,8 @@ struct VideoPageView: View {
         let looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
         self.looper = looper
         player = queuePlayer
-        Logger.view.info("VideoPage \(self.video.fileName) activate")
-        queuePlayer.play()
+        Logger.view.info("VideoPage \(self.video.fileName) prepare")
+        await waitForLoad()
     }
 
     private func waitForLoad() async {
@@ -205,7 +258,12 @@ struct VideoPageView: View {
 
     private func retry() {
         teardown()
-        activate()
+        Task {
+            await prepare()
+            if isActive {
+                player?.play()
+            }
+        }
     }
 
     private func failedView(_ message: String) -> some View {

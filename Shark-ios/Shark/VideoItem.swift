@@ -10,6 +10,7 @@ import Foundation
 struct VideoItem: Identifiable, Codable {
     let id: String
     let fileName: String
+    let videoUrl: String
     let username: String
     let caption: String
     let likes: Int
@@ -18,6 +19,11 @@ struct VideoItem: Identifiable, Codable {
     let music: String
 
     var videoURL: URL {
-        URL(string: "\(APIConfig.baseURL)/videos/\(fileName).mp4")!
+        URL(string: videoUrl)!
     }
+}
+
+struct VideoFeedResponse: Codable {
+    let videos: [VideoItem]
+    let hasMore: Bool
 }

@@ -4,17 +4,24 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 )
 
 type Video struct {
 	ID       string `json:"id"`
 	FileName string `json:"fileName"`
+	VideoURL string `json:"videoUrl"`
 	Username string `json:"username"`
 	Caption  string `json:"caption"`
 	Likes    int    `json:"likes"`
 	Comments int    `json:"comments"`
 	Shares   int    `json:"shares"`
 	Music    string `json:"music"`
+}
+
+type VideosResponse struct {
+	Videos  []Video `json:"videos"`
+	HasMore bool    `json:"hasMore"`
 }
 
 var videoCatalog = []Video{
@@ -26,8 +33,57 @@ var videoCatalog = []Video{
 }
 
 func videosHandler(w http.ResponseWriter, r *http.Request) {
+	limit, offset := paginationParams(r)
+
+	start := offset
+	end := start + limit
+	if end > len(videoCatalog) {
+		end = len(videoCatalog)
+	}
+	if start > len(videoCatalog) {
+		start = len(videoCatalog)
+	}
+
+	base := videoBaseURL(r)
+	page := make([]Video, 0, limit)
+	for _, v := range videoCatalog[start:end] {
+		v.VideoURL = base + v.FileName + ".mp4"
+		page = append(page, v)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(videoCatalog); err != nil {
+	if err := json.NewEncoder(w).Encode(VideosResponse{
+		Videos:  page,
+		HasMore: end < len(videoCatalog),
+	}); err != nil {
 		log.Printf("error encoding videos: %v", err)
 	}
+}
+
+func paginationParams(r *http.Request) (limit, offset int) {
+	limit = 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	offset = 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
+func videoBaseURL(r *http.Request) string {
+	scheme := "http"
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	return scheme + "://" + r.Host + "/videos/"
 }

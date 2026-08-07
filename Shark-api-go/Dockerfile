@@ -16,8 +16,12 @@ WORKDIR /app
 COPY --from=builder /shark-api /shark-api
 COPY MP4 ./MP4
 
+RUN mkdir /data && chown appuser /data
+
 USER appuser
 
 EXPOSE 8080
+
+ENV DB_PATH=/data/shark.db
 
 CMD ["/shark-api"]
