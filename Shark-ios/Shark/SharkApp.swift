@@ -16,7 +16,7 @@ struct SharkApp: App {
 
     var body: some Scene {
         WindowGroup {
-            VideoFeedView()
+            RootTabView()
         }
     }
 }

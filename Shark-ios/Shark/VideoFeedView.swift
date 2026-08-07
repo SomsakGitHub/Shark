@@ -44,9 +44,7 @@ struct VideoFeedView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
-        .ignoresSafeArea()
         .statusBarHidden()
-        .persistentSystemOverlays(.hidden)
         .task {
             await load()
         }
@@ -182,7 +180,6 @@ struct VideoPageView: View {
 
             videoOverlay
         }
-        .ignoresSafeArea()
         .task(id: shouldLoad) {
             if shouldLoad {
                 await prepare()
