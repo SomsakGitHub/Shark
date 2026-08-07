@@ -20,8 +20,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("/items/", itemHandler(store))
-	mux.HandleFunc("/items", itemsHandler(store))
+	mux.HandleFunc("GET /items/", itemHandler(store))
+	mux.HandleFunc("GET /items", itemsHandler(store))
+	mux.HandleFunc("GET /videos", videosHandler)
 	mux.Handle("GET /videos/", http.StripPrefix("/videos/", http.FileServer(http.Dir("MP4"))))
 
 	port := os.Getenv("PORT")

@@ -51,6 +51,12 @@ struct APIClient {
         return try await perform(request)
     }
 
+    func fetchVideos() async throws -> [VideoItem] {
+        var request = URLRequest(url: baseURL.appending(path: "videos"))
+        request.httpMethod = "GET"
+        return try await perform(request)
+    }
+
     func createItem(timestamp: Date) async throws -> Item {
         var request = URLRequest(url: baseURL.appending(path: "items"))
         request.httpMethod = "POST"

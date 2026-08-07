@@ -10,10 +10,43 @@ import AVFoundation
 import os
 
 struct VideoFeedView: View {
-    @State private var videos = VideoItem.mockData
+    enum FeedState {
+        case loading
+        case loaded
+        case failed(String)
+    }
+
+    @State private var videos: [VideoItem] = []
     @State private var currentVideoID: String?
+    @State private var feedState: FeedState = .loading
 
     var body: some View {
+        Group {
+            switch feedState {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let message):
+                feedErrorView(message)
+            case .loaded:
+                if videos.isEmpty {
+                    emptyView
+                } else {
+                    feed
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+        .ignoresSafeArea()
+        .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
+        .task {
+            await load()
+        }
+    }
+
+    private var feed: some View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
                 ForEach(videos) { video in
@@ -25,14 +58,45 @@ struct VideoFeedView: View {
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentVideoID)
-        .ignoresSafeArea()
-        .statusBarHidden()
-        .persistentSystemOverlays(.hidden)
         .onAppear {
             if currentVideoID == nil {
                 currentVideoID = videos.first?.id
             }
         }
+    }
+
+    private func load() async {
+        feedState = .loading
+        do {
+            videos = try await APIClient().fetchVideos()
+            currentVideoID = videos.first?.id
+            feedState = .loaded
+        } catch {
+            feedState = .failed(error.localizedDescription)
+        }
+    }
+
+    private var emptyView: some View {
+        Text("No videos available")
+            .foregroundStyle(.white)
+    }
+
+    private func feedErrorView(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 44))
+            Text("Couldn't load the feed")
+                .font(.headline)
+            Text(message)
+                .font(.caption)
+                .multilineTextAlignment(.center)
+            Button("Retry") {
+                Task { await load() }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .foregroundStyle(.white)
+        .padding(24)
     }
 }
 
