@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -150,6 +151,7 @@ func appleLoginHandler(store *ItemStore, clientID string) http.HandlerFunc {
 
 		claims, err := verifyAppleToken(req.IdentityToken, clientID)
 		if err != nil {
+			log.Printf("apple sign-in rejected: %v", err)
 			writeError(w, http.StatusUnauthorized, "invalid Apple identity token")
 			return
 		}
