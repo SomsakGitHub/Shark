@@ -20,6 +20,7 @@ struct MapView: View {
     @EnvironmentObject private var locationManager: LocationManager
 
     @State private var mapData: MapData?
+    @State private var videoPins: [VideoItem] = []
     @State private var loadState: LoadState = .loading
     @State private var position: MapCameraPosition = .region(defaultRegion)
     @State private var hasCenteredOnUser = false
@@ -69,6 +70,10 @@ struct MapView: View {
                 ForEach(spots) { spot in
                     Marker(spot.name, coordinate: spot.coordinate)
                 }
+            }
+            ForEach(videoPins) { video in
+                Marker(video.username, systemImage: "play.fill", coordinate: video.coordinate)
+                    .tint(.pink)
             }
             UserAnnotation()
         }
@@ -127,7 +132,10 @@ struct MapView: View {
         guard let token = auth.token else { return }
         loadState = .loading
         do {
-            mapData = try await APIClient().fetchMap(token: token)
+            async let mapRequest: MapData = APIClient().fetchMap(token: token)
+            async let videoRequest: VideoFeedResponse = APIClient().fetchVideos(offset: 0, limit: 50)
+            mapData = try await mapRequest
+            videoPins = try await videoRequest.videos
             if !hasCenteredOnUser, let center = mapData?.center {
                 position = .region(MKCoordinateRegion(
                     center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
@@ -147,6 +155,12 @@ struct MapView: View {
 }
 
 extension MapSpot {
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+extension VideoItem {
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
