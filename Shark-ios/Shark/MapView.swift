@@ -21,6 +21,7 @@ struct MapView: View {
 
     @State private var mapData: MapData?
     @State private var videoPins: [VideoItem] = []
+    @State private var selectedVideo: VideoItem?
     @State private var loadState: LoadState = .loading
     @State private var position: MapCameraPosition = .region(defaultRegion)
     @State private var hasCenteredOnUser = false
@@ -65,45 +66,69 @@ struct MapView: View {
     }
 
     private var map: some View {
-        Map(position: $position) {
-            if let spots = mapData?.spots {
-                ForEach(spots) { spot in
-                    Marker(spot.name, coordinate: spot.coordinate)
-                }
-            }
-            ForEach(videoPins) { video in
-                Marker(video.username, systemImage: "play.fill", coordinate: video.coordinate)
-                    .tint(.pink)
-            }
-            UserAnnotation()
-        }
-        .mapStyle(.standard)
-        .mapControls {
-            MapCompass()
-            MapScaleView()
-            MapUserLocationButton()
-        }
-        .ignoresSafeArea(edges: .top)
-        .safeAreaInset(edge: .bottom) {
-            if let username = auth.username {
-                HStack {
-                    Text("Logged in as \(username)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Log Out") {
-                        auth.logout()
+        MapReader { proxy in
+            Map(position: $position) {
+                if let spots = mapData?.spots {
+                    ForEach(spots) { spot in
+                        Marker(spot.name, coordinate: spot.coordinate)
                     }
-                    .font(.caption)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.thinMaterial)
+                ForEach(videoPins) { video in
+                    Marker(video.username, systemImage: "play.fill", coordinate: video.coordinate)
+                        .tint(.pink)
+                }
+                UserAnnotation()
+            }
+            .mapStyle(.standard)
+            .mapControls {
+                MapCompass()
+                MapScaleView()
+                MapUserLocationButton()
+            }
+            .ignoresSafeArea(edges: .top)
+            .safeAreaInset(edge: .bottom) {
+                if let username = auth.username {
+                    HStack {
+                        Text("Logged in as \(username)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Log Out") {
+                            auth.logout()
+                        }
+                        .font(.caption)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.thinMaterial)
+                }
+            }
+            .onTapGesture { location in
+                if let coordinate = proxy.convert(location, from: .local) {
+                    selectVideo(at: coordinate)
+                }
             }
         }
         .onChange(of: locationKey) {
             centerOnUserIfNeeded()
         }
+        .sheet(item: $selectedVideo) { video in
+            VideoPreviewSheet(video: video)
+        }
+    }
+
+    private func selectVideo(at coordinate: CLLocationCoordinate2D) {
+        guard let nearest = videoPins.min(by: {
+            distance(from: $0.coordinate, to: coordinate) < distance(from: $1.coordinate, to: coordinate)
+        }) else { return }
+        guard distance(from: nearest.coordinate, to: coordinate) <= 1.0 else { return }
+        selectedVideo = nearest
+    }
+
+    private func distance(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        let lat = (a.latitude - b.latitude) * 111.32
+        let lng = (a.longitude - b.longitude) * 111.32 * cos(a.latitude * .pi / 180)
+        return sqrt(lat * lat + lng * lng)
     }
 
     private var locationKey: String? {
