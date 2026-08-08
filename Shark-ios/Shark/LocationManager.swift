@@ -8,6 +8,7 @@
 import Foundation
 import CoreLocation
 import Combine
+import os
 
 final class LocationManager: NSObject, ObservableObject {
     @Published private(set) var location: CLLocation?
@@ -46,6 +47,7 @@ extension LocationManager: CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         Task { @MainActor in
             self.location = location
+            Logger.view.info("User location: \(location.coordinate.latitude, privacy: .public), \(location.coordinate.longitude, privacy: .public)")
         }
     }
 
