@@ -2,21 +2,32 @@ package main
 
 import (
 	"encoding/json"
+	"hash/fnv"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"strconv"
 )
 
+const (
+	mockCenterLat = 13.630319
+	mockCenterLng = 100.658888
+	mockRadiusKm  = 10.0
+)
+
 type Video struct {
-	ID       string `json:"id"`
-	FileName string `json:"fileName"`
-	VideoURL string `json:"videoUrl"`
-	Username string `json:"username"`
-	Caption  string `json:"caption"`
-	Likes    int    `json:"likes"`
-	Comments int    `json:"comments"`
-	Shares   int    `json:"shares"`
-	Music    string `json:"music"`
+	ID        string  `json:"id"`
+	FileName  string  `json:"fileName"`
+	VideoURL  string  `json:"videoUrl"`
+	Username  string  `json:"username"`
+	Caption   string  `json:"caption"`
+	Likes     int     `json:"likes"`
+	Comments  int     `json:"comments"`
+	Shares    int     `json:"shares"`
+	Music     string  `json:"music"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 type VideosResponse struct {
@@ -48,6 +59,7 @@ func videosHandler(w http.ResponseWriter, r *http.Request) {
 	page := make([]Video, 0, limit)
 	for _, v := range videoCatalog[start:end] {
 		v.VideoURL = base + v.FileName + ".mp4"
+		v.Latitude, v.Longitude = mockLocation(v.ID)
 		page = append(page, v)
 	}
 
@@ -86,4 +98,22 @@ func videoBaseURL(r *http.Request) string {
 		scheme = proto
 	}
 	return scheme + "://" + r.Host + "/videos/"
+}
+
+// mockLocation returns deterministic coordinates within mockRadiusKm of the
+// mock center, seeded by the video ID so each video keeps a stable position.
+func mockLocation(seed string) (float64, float64) {
+	h := fnv.New32a()
+	h.Write([]byte(seed))
+	rng := rand.New(rand.NewSource(int64(h.Sum32())))
+
+	distance := rng.Float64() * mockRadiusKm
+	bearing := rng.Float64() * 2 * math.Pi
+
+	latPerKm := 1.0 / 111.32
+	lngPerKm := 1.0 / (111.32 * math.Cos(mockCenterLat*math.Pi/180))
+
+	lat := mockCenterLat + distance*math.Cos(bearing)*latPerKm
+	lng := mockCenterLng + distance*math.Sin(bearing)*lngPerKm
+	return lat, lng
 }

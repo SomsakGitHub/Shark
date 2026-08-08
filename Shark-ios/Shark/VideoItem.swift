@@ -17,6 +17,8 @@ struct VideoItem: Identifiable, Codable {
     let comments: Int
     let shares: Int
     let music: String
+    let latitude: Double
+    let longitude: Double
 
     var videoURL: URL {
         URL(string: videoUrl)!
