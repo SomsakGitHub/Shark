@@ -17,8 +17,8 @@ struct MapView: View {
     }
 
     @EnvironmentObject private var auth: AuthStore
+    @EnvironmentObject private var locationManager: LocationManager
 
-    @State private var locationManager = LocationManager()
     @State private var mapData: MapData?
     @State private var loadState: LoadState = .loading
     @State private var position: MapCameraPosition = .region(defaultRegion)
@@ -96,9 +96,6 @@ struct MapView: View {
                 .background(.thinMaterial)
             }
         }
-        .onAppear {
-            locationManager.requestAuthorization()
-        }
         .onChange(of: locationKey) {
             centerOnUserIfNeeded()
         }
@@ -158,4 +155,5 @@ extension MapSpot {
 #Preview {
     MapView()
         .environmentObject(AuthStore())
+        .environmentObject(LocationManager())
 }

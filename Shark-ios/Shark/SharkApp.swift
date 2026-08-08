@@ -10,6 +10,8 @@ import AVFoundation
 
 @main
 struct SharkApp: App {
+    @StateObject private var locationManager = LocationManager()
+
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback)
     }
@@ -17,6 +19,10 @@ struct SharkApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView()
+                .environmentObject(locationManager)
+                .task {
+                    locationManager.requestAuthorization()
+                }
         }
     }
 }
