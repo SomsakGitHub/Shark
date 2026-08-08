@@ -8,19 +8,28 @@
 import SwiftUI
 
 struct RootTabView: View {
+    enum Tab: Hashable {
+        case feed
+        case map
+    }
+
     @StateObject private var auth = AuthStore()
+    @State private var selection: Tab = .feed
 
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             VideoFeedView()
                 .tabItem {
                     Label("Feed", systemImage: "play.rectangle")
                 }
+                .tag(Tab.feed)
+
             MapView()
                 .environmentObject(auth)
                 .tabItem {
                     Label("Map", systemImage: "map")
                 }
+                .tag(Tab.map)
         }
     }
 }
