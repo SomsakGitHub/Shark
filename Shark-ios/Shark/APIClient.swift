@@ -27,6 +27,28 @@ struct APIError: LocalizedError {
     }
 }
 
+struct AuthSession: Codable {
+    let token: String
+    let username: String
+}
+
+struct MapCenter: Codable {
+    let latitude: Double
+    let longitude: Double
+}
+
+struct MapSpot: Codable, Identifiable {
+    let id: Int
+    let name: String
+    let latitude: Double
+    let longitude: Double
+}
+
+struct MapData: Codable {
+    let center: MapCenter
+    let spots: [MapSpot]
+}
+
 struct APIClient {
     private let baseURL: URL
     private let session: URLSession
@@ -71,6 +93,29 @@ struct APIClient {
         request.httpBody = try encode(["timestamp": timestamp])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(to: &request)
+        return try await perform(request)
+    }
+
+    func login(username: String, password: String) async throws -> AuthSession {
+        var request = URLRequest(url: baseURL.appending(path: "login"))
+        request.httpMethod = "POST"
+        request.httpBody = try encode(["username": username, "password": password])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return try await perform(request)
+    }
+
+    func appleLogin(identityToken: String) async throws -> AuthSession {
+        var request = URLRequest(url: baseURL.appending(path: "auth/apple"))
+        request.httpMethod = "POST"
+        request.httpBody = try encode(["identityToken": identityToken])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return try await perform(request)
+    }
+
+    func fetchMap(token: String) async throws -> MapData {
+        var request = URLRequest(url: baseURL.appending(path: "map"))
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return try await perform(request)
     }
 

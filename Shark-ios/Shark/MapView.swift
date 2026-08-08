@@ -7,34 +7,64 @@
 
 import SwiftUI
 import MapKit
-
-struct CreatorSpot: Identifiable {
-    let id: Int
-    let name: String
-    let coordinate: CLLocationCoordinate2D
-}
+import os
 
 struct MapView: View {
-    @State private var position: MapCameraPosition = .region(
-        MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: 13.7367, longitude: 100.5231),
-            span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
-        )
-    )
+    enum LoadState {
+        case loading
+        case loaded
+        case failed(String)
+    }
 
-    private let spots: [CreatorSpot] = [
-        CreatorSpot(id: 1, name: "@somsak", coordinate: CLLocationCoordinate2D(latitude: 13.7510, longitude: 100.4924)),
-        CreatorSpot(id: 2, name: "@kate_beat", coordinate: CLLocationCoordinate2D(latitude: 13.7244, longitude: 100.5105)),
-        CreatorSpot(id: 3, name: "@proud_pearl", coordinate: CLLocationCoordinate2D(latitude: 13.7461, longitude: 100.5395)),
-        CreatorSpot(id: 4, name: "@dao_squad", coordinate: CLLocationCoordinate2D(latitude: 13.8001, longitude: 100.5501)),
-        CreatorSpot(id: 5, name: "@bank_bounce", coordinate: CLLocationCoordinate2D(latitude: 13.7279, longitude: 100.5342)),
-    ]
+    @EnvironmentObject private var auth: AuthStore
+
+    @State private var mapData: MapData?
+    @State private var loadState: LoadState = .loading
 
     var body: some View {
-        Map(position: $position) {
-            ForEach(spots) { spot in
-                Annotation(spot.name, coordinate: spot.coordinate) {
-                    spotMarker(spot)
+        Group {
+            if auth.isAuthenticated {
+                content
+            } else {
+                LoginView()
+            }
+        }
+        .task(id: auth.token) {
+            await load()
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch loadState {
+        case .loading:
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed(let message):
+            VStack(spacing: 12) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 44))
+                Text("Couldn't load the map")
+                    .font(.headline)
+                Text(message)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                Button("Retry") {
+                    Task { await load() }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(24)
+        case .loaded:
+            map
+        }
+    }
+
+    private var map: some View {
+        Map(initialPosition: cameraPosition) {
+            if let spots = mapData?.spots {
+                ForEach(spots) { spot in
+                    Marker(spot.name, coordinate: spot.coordinate)
                 }
             }
         }
@@ -45,32 +75,59 @@ struct MapView: View {
             MapUserLocationButton()
         }
         .ignoresSafeArea(edges: .top)
-    }
-
-    private func spotMarker(_ spot: CreatorSpot) -> some View {
-        VStack(spacing: 2) {
-            ZStack {
-                Circle()
-                    .fill(Color.pink)
-                    .frame(width: 34, height: 34)
-                Text(initial(spot.name))
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
+        .safeAreaInset(edge: .bottom) {
+            if let username = auth.username {
+                HStack {
+                    Text("Logged in as \(username)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Log Out") {
+                        auth.logout()
+                    }
+                    .font(.caption)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.thinMaterial)
             }
-            Text(spot.name)
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.thinMaterial, in: Capsule())
         }
     }
 
-    private func initial(_ username: String) -> String {
-        let trimmed = username.hasPrefix("@") ? String(username.dropFirst()) : username
-        return String(trimmed.prefix(1)).uppercased()
+    private var cameraPosition: MapCameraPosition {
+        guard let center = mapData?.center else {
+            return .region(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 13.7367, longitude: 100.5231),
+                span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
+            ))
+        }
+        return .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
+            span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
+        ))
+    }
+
+    private func load() async {
+        guard let token = auth.token else { return }
+        loadState = .loading
+        do {
+            mapData = try await APIClient().fetchMap(token: token)
+            loadState = .loaded
+            Logger.view.info("Map loaded")
+        } catch {
+            loadState = .failed(error.localizedDescription)
+            Logger.view.error("Failed to load map: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+extension MapSpot {
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 }
 
 #Preview {
     MapView()
+        .environmentObject(AuthStore())
 }

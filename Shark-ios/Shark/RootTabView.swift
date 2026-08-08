@@ -8,17 +8,11 @@
 import SwiftUI
 
 struct RootTabView: View {
+    @StateObject private var auth = AuthStore()
+
     var body: some View {
-        TabView {
-            VideoFeedView()
-                .tabItem {
-                    Label("Feed", systemImage: "play.rectangle")
-                }
-            MapView()
-                .tabItem {
-                    Label("Map", systemImage: "map")
-                }
-        }
+        MapView()
+            .environmentObject(auth)
     }
 }
 

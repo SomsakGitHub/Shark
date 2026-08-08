@@ -22,10 +22,19 @@ func main() {
 	}
 	defer store.Close()
 
+	clientID := os.Getenv("APPLE_CLIENT_ID")
+	if clientID == "" {
+		clientID = "com.somsak.Shark"
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("/items/", itemHandler(store))
 	mux.HandleFunc("/items", itemsHandler(store))
+	mux.HandleFunc("POST /register", registerHandler(store))
+	mux.HandleFunc("POST /login", loginHandler(store))
+	mux.HandleFunc("POST /auth/apple", appleLoginHandler(store, clientID))
+	mux.HandleFunc("GET /map", requireToken(store, mapHandler(store)))
 	mux.HandleFunc("GET /videos", videosHandler)
 	mux.Handle("GET /videos/", http.StripPrefix("/videos/", http.FileServer(http.Dir("MP4"))))
 

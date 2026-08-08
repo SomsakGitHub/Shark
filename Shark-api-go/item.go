@@ -20,6 +20,22 @@ const (
 		key   TEXT PRIMARY KEY,
 		value INTEGER NOT NULL
 	);`
+	userTable = `CREATE TABLE IF NOT EXISTS users (
+		id            TEXT PRIMARY KEY,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		created_at    TEXT NOT NULL
+	);`
+	sessionTable = `CREATE TABLE IF NOT EXISTS sessions (
+		token      TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	);`
+	appleUserTable = `CREATE TABLE IF NOT EXISTS apple_users (
+		apple_sub  TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL UNIQUE,
+		created_at TEXT NOT NULL
+	);`
 )
 
 type Item struct {
@@ -51,6 +67,15 @@ func NewItemStore() (*ItemStore, error) {
 	}
 	if _, err := db.Exec(metaTable); err != nil {
 		return nil, fmt.Errorf("creating meta table: %w", err)
+	}
+	if _, err := db.Exec(userTable); err != nil {
+		return nil, fmt.Errorf("creating users table: %w", err)
+	}
+	if _, err := db.Exec(sessionTable); err != nil {
+		return nil, fmt.Errorf("creating sessions table: %w", err)
+	}
+	if _, err := db.Exec(appleUserTable); err != nil {
+		return nil, fmt.Errorf("creating apple users table: %w", err)
 	}
 
 	return &ItemStore{db: db}, nil
