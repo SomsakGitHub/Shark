@@ -11,8 +11,17 @@ struct RootTabView: View {
     @StateObject private var auth = AuthStore()
 
     var body: some View {
-        MapView()
-            .environmentObject(auth)
+        TabView {
+            VideoFeedView()
+                .tabItem {
+                    Label("Feed", systemImage: "play.rectangle")
+                }
+            MapView()
+                .environmentObject(auth)
+                .tabItem {
+                    Label("Map", systemImage: "map")
+                }
+        }
     }
 }
 
