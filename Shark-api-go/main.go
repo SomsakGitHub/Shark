@@ -29,8 +29,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("/items/", itemHandler(store))
-	mux.HandleFunc("/items", itemsHandler(store))
+	mux.Handle("/items/", requireWriteKey(itemHandler(store)))
+	mux.Handle("/items", requireWriteKey(itemsHandler(store)))
 	mux.HandleFunc("POST /register", registerHandler(store))
 	mux.HandleFunc("POST /login", loginHandler(store))
 	mux.HandleFunc("POST /auth/apple", appleLoginHandler(store, clientID))
@@ -44,7 +44,7 @@ func main() {
 	}
 
 	log.Printf("Shark API listening on :%s", port)
-	handler := withLogging(withCORS(withRateLimit(requireWriteKey(mux))))
+	handler := withLogging(withCORS(withRateLimit(mux)))
 	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		log.Fatal(err)
 	}
