@@ -18,8 +18,11 @@ struct MapView: View {
 
     @EnvironmentObject private var auth: AuthStore
 
+    @State private var locationManager = LocationManager()
     @State private var mapData: MapData?
     @State private var loadState: LoadState = .loading
+    @State private var position: MapCameraPosition = .region(defaultRegion)
+    @State private var hasCenteredOnUser = false
 
     var body: some View {
         Group {
@@ -61,12 +64,13 @@ struct MapView: View {
     }
 
     private var map: some View {
-        Map(initialPosition: cameraPosition) {
+        Map(position: $position) {
             if let spots = mapData?.spots {
                 ForEach(spots) { spot in
                     Marker(spot.name, coordinate: spot.coordinate)
                 }
             }
+            UserAnnotation()
         }
         .mapStyle(.standard)
         .mapControls {
@@ -92,19 +96,34 @@ struct MapView: View {
                 .background(.thinMaterial)
             }
         }
+        .onAppear {
+            locationManager.requestAuthorization()
+        }
+        .onChange(of: locationKey) {
+            centerOnUserIfNeeded()
+        }
     }
 
-    private var cameraPosition: MapCameraPosition {
-        guard let center = mapData?.center else {
-            return .region(MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: 13.7367, longitude: 100.5231),
-                span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
-            ))
-        }
-        return .region(MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
-            span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
+    private var locationKey: String? {
+        guard let coordinate = locationManager.location?.coordinate else { return nil }
+        return String(format: "%.5f,%.5f", coordinate.latitude, coordinate.longitude)
+    }
+
+    private func centerOnUserIfNeeded() {
+        guard !hasCenteredOnUser,
+              let coordinate = locationManager.location?.coordinate else { return }
+        hasCenteredOnUser = true
+        position = .region(MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
         ))
+    }
+
+    private static var defaultRegion: MKCoordinateRegion {
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 13.7367, longitude: 100.5231),
+            span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
+        )
     }
 
     private func load() async {
@@ -112,8 +131,17 @@ struct MapView: View {
         loadState = .loading
         do {
             mapData = try await APIClient().fetchMap(token: token)
+            if !hasCenteredOnUser, let center = mapData?.center {
+                position = .region(MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
+                    span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25)
+                ))
+            }
             loadState = .loaded
             Logger.view.info("Map loaded")
+        } catch let error as APIError where error.statusCode == 401 {
+            auth.logout()
+            Logger.view.info("Session expired, logged out")
         } catch {
             loadState = .failed(error.localizedDescription)
             Logger.view.error("Failed to load map: \(error.localizedDescription, privacy: .public)")
