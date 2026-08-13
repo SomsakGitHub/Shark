@@ -41,8 +41,10 @@ struct SignInView: View {
 struct AppTabView: View {
     var body: some View {
         TabView {
-            FeedView()
+            FeedRootView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
+            SearchView()
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
             UploadView()
                 .tabItem { Label("Upload", systemImage: "plus.app.fill") }
             ProfileView()

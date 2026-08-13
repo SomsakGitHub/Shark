@@ -39,9 +39,16 @@ final class PlayerLayerUIView: UIView {
 }
 
 struct FeedView: View {
-    @StateObject private var feed = FeedModel()
+    let mode: FeedMode
+
+    @StateObject private var feed: FeedModel
     @StateObject private var playerModel = PlayerModel()
     @State private var currentKey: String?
+
+    init(mode: FeedMode) {
+        self.mode = mode
+        _feed = StateObject(wrappedValue: FeedModel(mode: mode))
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -206,5 +213,45 @@ struct VideoCell: View {
                 print("Double-tap like failed: \(error.localizedDescription)")
             }
         }
+    }
+}
+
+struct FeedRootView: View {
+    @State private var mode: FeedMode = .forYou
+
+    var body: some View {
+        ZStack {
+            FeedView(mode: mode)
+                .id(mode)
+
+            VStack {
+                HStack(spacing: 0) {
+                    feedTab("Following", .following)
+                    feedTab("For You", .forYou)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+                .background(.black.opacity(0.45), in: Capsule())
+                .padding(.top, 12)
+                Spacer()
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private func feedTab(_ title: String, _ tab: FeedMode) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                mode = tab
+            }
+        } label: {
+            Text(title)
+                .font(.subheadline.bold())
+                .foregroundStyle(mode == tab ? .black : .white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .background(mode == tab ? Color.white : .clear, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }

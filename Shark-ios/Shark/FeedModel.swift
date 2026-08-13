@@ -7,8 +7,13 @@ final class FeedModel: ObservableObject {
     @Published private(set) var videos: [Video] = []
     @Published private(set) var isLoading = false
 
+    private let mode: FeedMode
     private var nextCursor: String?
     private var hasLoaded = false
+
+    init(mode: FeedMode = .forYou) {
+        self.mode = mode
+    }
 
     func loadIfNeeded() async {
         guard !hasLoaded, !isLoading else { return }
@@ -22,12 +27,13 @@ final class FeedModel: ObservableObject {
         defer { isLoading = false }
 
         do {
+            let base = mode == .following ? "/api/videos/following" : "/api/videos"
             let path: String
             if let cursor = nextCursor {
                 let encoded = cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cursor
-                path = "/api/videos?cursor=\(encoded)"
+                path = "\(base)?cursor=\(encoded)"
             } else {
-                path = "/api/videos"
+                path = base
             }
             let response: FeedResponse = try await APIClient.shared.request(path)
             videos.append(contentsOf: response.videos)
@@ -37,6 +43,11 @@ final class FeedModel: ObservableObject {
             print("Feed load error: \(error.localizedDescription)")
         }
     }
+}
+
+enum FeedMode: Hashable {
+    case forYou
+    case following
 }
 
 @MainActor

@@ -68,14 +68,38 @@ struct VideoCreateResponse: Codable {
 
 struct ProfileResponse: Codable {
     let user: APIUser
-    let counts: Counts
+    var counts: Counts
     let videos: [Video]
 
     struct Counts: Codable {
         let videoCount: Int
-        let followerCount: Int
+        var followerCount: Int
         let followingCount: Int
+        var followedByMe: Bool
     }
+}
+
+struct UserSummary: Codable, Identifiable, Hashable {
+    let id: String
+    let username: String
+    let avatarUrl: String?
+    var followerCount: Int
+    var followedByMe: Bool
+}
+
+struct SearchResponse: Codable {
+    let users: [UserSummary]
+    let videos: [Video]
+}
+
+struct ExploreResponse: Codable {
+    let users: [UserSummary]
+    let videos: [Video]
+}
+
+struct FollowResponse: Codable {
+    let following: Bool
+    let followerCount: Int
 }
 
 struct ErrorResponse: Codable {

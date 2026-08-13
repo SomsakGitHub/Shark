@@ -62,41 +62,34 @@ const mapVideo = (row: Record<string, unknown>) => ({
   likedByMe: Boolean(row.liked_by_me),
 });
 
-app.get('/api/videos', requireAuth, async (c) => {
-  const me = c.get('user').id;
-  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 10), 1), 50);
-  const cursor = c.req.query('cursor');
-  const db = getDb(c.env);
+const fetchFeed = async (db: ReturnType<typeof getDb>, me: string, limit: number, cursor: string | null | undefined, followingOnly: boolean) => {
+  const followingWhere = followingOnly
+    ? `v.user_id in (select f.followee_id from follows f where f.follower_id = '${me}')`
+    : null;
+  const base = `
+    select
+      v.id, v.key, v.caption, v.created_at,
+      u.id as user_id, u.username, u.avatar_url,
+      (select count(*)::int from likes l where l.video_id = v.id) as like_count,
+      (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
+      exists(select 1 from likes l where l.video_id = v.id and l.user_id = $1) as liked_by_me
+    from videos v
+    join users u on u.id = v.user_id
+  `;
+  const where = followingWhere ?? 'true';
 
   let rows: Record<string, unknown>[];
   if (cursor) {
     const [at, id] = cursor.split(',');
-    rows = await db`
-      select
-        v.id, v.key, v.caption, v.created_at,
-        u.id as user_id, u.username, u.avatar_url,
-        (select count(*)::int from likes l where l.video_id = v.id) as like_count,
-        (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
-        exists(select 1 from likes l where l.video_id = v.id and l.user_id = ${me}) as liked_by_me
-      from videos v
-      join users u on u.id = v.user_id
-      where (v.created_at, v.id) < (${at}::timestamptz, ${id}::uuid)
-      order by v.created_at desc, v.id desc
-      limit ${limit}
-    ` as unknown as Record<string, unknown>[];
+    rows = (await db(
+      `${base} where ${where} and (v.created_at, v.id) < ($2::timestamptz, $3::uuid) order by v.created_at desc, v.id desc limit $4`,
+      [me, at, id, limit],
+    )) as unknown as Record<string, unknown>[];
   } else {
-    rows = await db`
-      select
-        v.id, v.key, v.caption, v.created_at,
-        u.id as user_id, u.username, u.avatar_url,
-        (select count(*)::int from likes l where l.video_id = v.id) as like_count,
-        (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
-        exists(select 1 from likes l where l.video_id = v.id and l.user_id = ${me}) as liked_by_me
-      from videos v
-      join users u on u.id = v.user_id
-      order by v.created_at desc, v.id desc
-      limit ${limit}
-    ` as unknown as Record<string, unknown>[];
+    rows = (await db(
+      `${base} where ${where} order by v.created_at desc, v.id desc limit $2`,
+      [me, limit],
+    )) as unknown as Record<string, unknown>[];
   }
 
   const videos = rows.map(mapVideo);
@@ -104,7 +97,84 @@ app.get('/api/videos', requireAuth, async (c) => {
     videos.length === limit
       ? `${(videos[videos.length - 1].createdAt as Date).toISOString()},${videos[videos.length - 1].id}`
       : null;
-  return c.json({ videos, nextCursor });
+  return { videos, nextCursor };
+};
+
+app.get('/api/videos', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 10), 1), 50);
+  const cursor = c.req.query('cursor');
+  return c.json(await fetchFeed(getDb(c.env), me, limit, cursor, false));
+});
+
+app.get('/api/videos/following', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const limit = Math.min(Math.max(Number(c.req.query('limit') ?? 10), 1), 50);
+  const cursor = c.req.query('cursor');
+  return c.json(await fetchFeed(getDb(c.env), me, limit, cursor, true));
+});
+
+const mapUserSummary = (r: Record<string, unknown>) => ({
+  id: r.id,
+  username: r.username,
+  avatar_url: r.avatar_url,
+  followerCount: Number(r.follower_count ?? 0),
+  followedByMe: Boolean(r.followed_by_me),
+});
+
+app.get('/api/search', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const q = (c.req.query('q') ?? '').trim();
+  if (!q) return c.json({ users: [], videos: [] });
+  const db = getDb(c.env);
+  const pattern = `%${q}%`;
+  const userRows = (await db`
+    select u.id, u.username, u.avatar_url,
+      (select count(*)::int from follows f where f.followee_id = u.id) as follower_count,
+      exists(select 1 from follows f where f.follower_id = ${me} and f.followee_id = u.id) as followed_by_me
+    from users u
+    where u.id <> ${me} and u.username ilike ${pattern}
+    order by follower_count desc
+    limit 20
+  `) as unknown as Record<string, unknown>[];
+  const videoRows = await db`
+    select v.id, v.key, v.caption, v.created_at,
+      u.id as user_id, u.username, u.avatar_url,
+      (select count(*)::int from likes l where l.video_id = v.id) as like_count,
+      (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
+      exists(select 1 from likes l where l.video_id = v.id and l.user_id = ${me}) as liked_by_me
+    from videos v join users u on u.id = v.user_id
+    where v.caption ilike ${pattern}
+    order by v.created_at desc
+    limit 20
+  ` as unknown as Record<string, unknown>[];
+  return c.json({ users: userRows.map(mapUserSummary), videos: videoRows.map(mapVideo) });
+});
+
+app.get('/api/explore', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const db = getDb(c.env);
+  const userRows = (await db`
+    select u.id, u.username, u.avatar_url,
+      (select count(*)::int from follows f where f.followee_id = u.id) as follower_count,
+      false as followed_by_me
+    from users u
+    where u.id <> ${me}
+      and not exists(select 1 from follows f where f.follower_id = ${me} and f.followee_id = u.id)
+    order by follower_count desc, u.created_at desc
+    limit 10
+  `) as unknown as Record<string, unknown>[];
+  const videoRows = await db`
+    select v.id, v.key, v.caption, v.created_at,
+      u.id as user_id, u.username, u.avatar_url,
+      (select count(*)::int from likes l where l.video_id = v.id) as like_count,
+      (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
+      exists(select 1 from likes l where l.video_id = v.id and l.user_id = ${me}) as liked_by_me
+    from videos v join users u on u.id = v.user_id
+    order by v.created_at desc
+    limit 20
+  ` as unknown as Record<string, unknown>[];
+  return c.json({ users: userRows.map(mapUserSummary), videos: videoRows.map(mapVideo) });
 });
 
 app.put('/api/upload/:key', requireAuth, async (c) => {
@@ -292,7 +362,8 @@ app.post('/api/users/:id/follow', requireAuth, async (c) => {
   return c.json({ following, followerCount });
 });
 
-app.get('/api/users/:id', async (c) => {
+app.get('/api/users/:id', requireAuth, async (c) => {
+  const me = c.get('user').id;
   const userId = c.req.param('id');
   const db = getDb(c.env);
   const profile = await getUserById(db, userId);
@@ -302,7 +373,7 @@ app.get('/api/users/:id', async (c) => {
       u.id as user_id, u.username, u.avatar_url,
       (select count(*)::int from likes l where l.video_id = v.id) as like_count,
       (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
-      false as liked_by_me
+      exists(select 1 from likes l where l.video_id = v.id and l.user_id = ${me}) as liked_by_me
     from videos v join users u on u.id = v.user_id
     where v.user_id = ${userId}
     order by v.created_at desc
@@ -311,7 +382,8 @@ app.get('/api/users/:id', async (c) => {
     select
       (select count(*)::int from videos v where v.user_id = ${userId}) as video_count,
       (select count(*)::int from follows f where f.followee_id = ${userId}) as follower_count,
-      (select count(*)::int from follows f where f.follower_id = ${userId}) as following_count
+      (select count(*)::int from follows f where f.follower_id = ${userId}) as following_count,
+      exists(select 1 from follows f where f.follower_id = ${me} and f.followee_id = ${userId}) as followed_by_me
   ` as unknown as Record<string, unknown>[];
   return c.json({
     user: profile,
@@ -319,6 +391,7 @@ app.get('/api/users/:id', async (c) => {
       videoCount: Number(counts[0].video_count),
       followerCount: Number(counts[0].follower_count),
       followingCount: Number(counts[0].following_count),
+      followedByMe: Boolean(counts[0].followed_by_me),
     },
     videos: videoRows.map(mapVideo),
   });
