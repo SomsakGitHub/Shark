@@ -2,15 +2,25 @@ import SwiftUI
 
 struct VideoActions: View {
     let video: Video
+    var onLikeChanged: ((Bool, Int) -> Void)? = nil
+    var onCommentCountChanged: ((Int) -> Void)? = nil
 
     @State private var liked: Bool
     @State private var likeCount: Int
+    @State private var commentCount: Int
     @State private var showingComments = false
 
-    init(video: Video) {
+    init(
+        video: Video,
+        onLikeChanged: ((Bool, Int) -> Void)? = nil,
+        onCommentCountChanged: ((Int) -> Void)? = nil
+    ) {
         self.video = video
+        self.onLikeChanged = onLikeChanged
+        self.onCommentCountChanged = onCommentCountChanged
         _liked = State(initialValue: video.likedByMe)
         _likeCount = State(initialValue: video.likeCount)
+        _commentCount = State(initialValue: video.commentCount)
     }
 
     var body: some View {
@@ -23,7 +33,7 @@ struct VideoActions: View {
             actionButton(systemImage: "bubble.right", tint: .white) {
                 showingComments = true
             }
-            Text("\(video.commentCount)").font(.caption2)
+            Text("\(commentCount)").font(.caption2)
 
             ShareLink(item: video.shareURL, subject: Text("Check out this video on Shark")) {
                 Image(systemName: "arrowshape.turn.up.right")
@@ -35,8 +45,14 @@ struct VideoActions: View {
         }
         .foregroundStyle(.white)
         .sheet(isPresented: $showingComments) {
-            CommentsView(videoID: video.id)
-                .presentationDetents([.medium, .large])
+            CommentsView(
+                videoID: video.id,
+                onCountChanged: { count in
+                    commentCount = count
+                    onCommentCountChanged?(count)
+                }
+            )
+            .presentationDetents([.medium, .large])
         }
     }
 
@@ -59,6 +75,8 @@ struct VideoActions: View {
                 liked = response.liked
                 likeCount = response.likeCount
             }
+            Haptics.impact(response.liked ? .medium : .light)
+            onLikeChanged?(response.liked, response.likeCount)
         } catch {
             print("Like failed: \(error.localizedDescription)")
         }

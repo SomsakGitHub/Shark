@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CommentsView: View {
     let videoID: String
+    var onCountChanged: ((Int) -> Void)? = nil
 
     @EnvironmentObject private var auth: AuthManager
     @State private var comments: [Comment] = []
@@ -29,8 +30,9 @@ struct CommentsView: View {
                     HStack(alignment: .top, spacing: 10) {
                         commentAvatar(comment.user)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("@\(comment.user.username)")
+                            Text("@\(comment.user.username)  ·  \(comment.createdAt.timeAgo)")
                                 .font(.caption.bold())
+                                .foregroundStyle(.secondary)
                             Text(comment.text)
                                 .font(.subheadline)
                         }
@@ -105,6 +107,7 @@ struct CommentsView: View {
                 "/api/videos/\(videoID)/comments"
             )
             comments = response.comments
+            onCountChanged?(comments.count)
         } catch {
             print("Load comments failed: \(error.localizedDescription)")
         }
@@ -126,6 +129,8 @@ struct CommentsView: View {
             comments = response.comments
             text = ""
             focused = false
+            Haptics.success()
+            onCountChanged?(comments.count)
         } catch {
             print("Post comment failed: \(error.localizedDescription)")
         }
@@ -138,6 +143,7 @@ struct CommentsView: View {
                 method: "DELETE"
             )
             comments = response.comments
+            onCountChanged?(comments.count)
         } catch {
             print("Delete comment failed: \(error.localizedDescription)")
         }

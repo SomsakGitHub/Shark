@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var showEditProfile = false
     @State private var videoToDelete: Video?
     @State private var listMode: UserListMode?
+    @State private var confirmSignOut = false
 
     private var user: APIUser? {
         profile?.user ?? auth.user
@@ -114,7 +115,9 @@ struct ProfileView: View {
             .toolbar {
                 if isOwnProfile {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Sign Out") { auth.signOut() }
+                        Button("Sign Out", role: .destructive) {
+                            confirmSignOut = true
+                        }
                     }
                 }
             }
@@ -139,6 +142,12 @@ struct ProfileView: View {
             }
             .sheet(item: $listMode) { mode in
                 UserListView(mode: mode)
+            }
+            .alert("Sign Out?", isPresented: $confirmSignOut) {
+                Button("Sign Out", role: .destructive) { auth.signOut() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll need to sign in again to continue.")
             }
         }
     }

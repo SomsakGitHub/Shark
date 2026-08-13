@@ -68,6 +68,17 @@ struct FeedView: View {
 
                                 VideoCell(video: feed.videos[index], playerModel: playerModel) {
                                     profileTarget = ProfileTarget(id: feed.videos[index].user.id)
+                                } onLikeChanged: { liked, count in
+                                    feed.applyLike(
+                                        videoID: feed.videos[index].id,
+                                        liked: liked,
+                                        likeCount: count
+                                    )
+                                } onCommentCountChanged: { count in
+                                    feed.applyCommentCount(
+                                        videoID: feed.videos[index].id,
+                                        count: count
+                                    )
                                 }
                                 .onChange(of: isActive) { _, active in
                                     if active {
@@ -98,7 +109,7 @@ struct FeedView: View {
                 }
                 .task {
                     await feed.loadIfNeeded()
-                    if let first = feed.videos.first {
+                    if !feed.videos.isEmpty {
                         activate(0)
                     }
                 }
@@ -109,6 +120,19 @@ struct FeedView: View {
             }
             .sheet(item: $profileTarget) { target in
                 ProfileView(userId: target.id)
+            }
+            .alert("Couldn't load feed", isPresented: Binding(
+                get: { feed.errorMessage != nil },
+                set: { if !$0 { feed.errorMessage = nil } }
+            )) {
+                Button("Retry") {
+                    Task { await feed.loadIfNeeded() }
+                }
+                Button("Cancel", role: .cancel) {
+                    feed.errorMessage = nil
+                }
+            } message: {
+                Text(feed.errorMessage ?? "")
             }
         }
     }
@@ -165,6 +189,8 @@ struct VideoCell: View {
     let video: Video
     @ObservedObject var playerModel: PlayerModel
     var onUserTap: (() -> Void)? = nil
+    var onLikeChanged: ((Bool, Int) -> Void)? = nil
+    var onCommentCountChanged: ((Int) -> Void)? = nil
 
     @State private var showHeart = false
     @State private var heartScale: CGFloat = 0.4
@@ -202,7 +228,11 @@ struct VideoCell: View {
 
                     Spacer()
 
-                    VideoActions(video: video)
+                    VideoActions(
+                        video: video,
+                        onLikeChanged: onLikeChanged,
+                        onCommentCountChanged: onCommentCountChanged
+                    )
                         .padding(.trailing, 12)
                         .padding(.bottom, 88)
                 }
@@ -284,6 +314,7 @@ struct VideoCell: View {
 
     private func triggerLikeHeart() {
         guard !showHeart else { return }
+        Haptics.impact(.rigid)
         withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) {
             showHeart = true
             heartScale = 1

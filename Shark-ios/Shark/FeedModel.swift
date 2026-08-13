@@ -6,6 +6,7 @@ import Foundation
 final class FeedModel: ObservableObject {
     @Published private(set) var videos: [Video] = []
     @Published private(set) var isLoading = false
+    @Published var errorMessage: String?
 
     private let mode: FeedMode
     private var nextCursor: String?
@@ -13,6 +14,17 @@ final class FeedModel: ObservableObject {
 
     init(mode: FeedMode = .forYou) {
         self.mode = mode
+    }
+
+    func applyLike(videoID: String, liked: Bool, likeCount: Int) {
+        guard let index = videos.firstIndex(where: { $0.id == videoID }) else { return }
+        videos[index].likedByMe = liked
+        videos[index].likeCount = likeCount
+    }
+
+    func applyCommentCount(videoID: String, count: Int) {
+        guard let index = videos.firstIndex(where: { $0.id == videoID }) else { return }
+        videos[index].commentCount = count
     }
 
     func loadIfNeeded() async {
@@ -47,8 +59,10 @@ final class FeedModel: ObservableObject {
             videos.append(contentsOf: response.videos)
             nextCursor = response.nextCursor
             hasLoaded = true
+            errorMessage = nil
         } catch {
             print("Feed load error: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
         }
     }
 }

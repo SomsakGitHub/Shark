@@ -185,6 +185,7 @@ struct UserRow: View {
                 )
                 user.followedByMe = response.following
                 user.followerCount = response.followerCount
+                Haptics.success()
             } catch {
                 print("Follow failed: \(error.localizedDescription)")
             }
