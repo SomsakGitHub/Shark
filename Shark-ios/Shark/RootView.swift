@@ -12,6 +12,7 @@ struct RootView: View {
                 SignInView()
             }
         }
+        .preferredColorScheme(.dark)
         .onOpenURL { url in
             guard auth.isSignedIn else { return }
             deepLink.handle(url)

@@ -20,6 +20,14 @@ final class FeedModel: ObservableObject {
         await loadMore()
     }
 
+    func refresh() async {
+        guard !isLoading else { return }
+        videos = []
+        nextCursor = nil
+        hasLoaded = false
+        await loadMore()
+    }
+
     func loadMore() async {
         guard !isLoading else { return }
         if nextCursor == "" { return }

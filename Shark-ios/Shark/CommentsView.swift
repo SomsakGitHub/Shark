@@ -27,14 +27,7 @@ struct CommentsView: View {
             } else {
                 List(comments) { comment in
                     HStack(alignment: .top, spacing: 10) {
-                        Circle()
-                            .fill(Color.accentColor.opacity(0.8))
-                            .frame(width: 32, height: 32)
-                            .overlay {
-                                Text(String(comment.user.username.prefix(1)).uppercased())
-                                    .font(.caption.bold())
-                                    .foregroundStyle(.white)
-                            }
+                        commentAvatar(comment.user)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("@\(comment.user.username)")
                                 .font(.caption.bold())
@@ -72,6 +65,36 @@ struct CommentsView: View {
             .padding(.vertical, 8)
         }
         .task { await load() }
+    }
+
+    @ViewBuilder
+    private func commentAvatar(_ user: Video.UserRef) -> some View {
+        if let path = user.avatarUrl, let url = URL.shark(path) {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    letterAvatar(user)
+                }
+            }
+            .frame(width: 32, height: 32)
+            .clipShape(Circle())
+        } else {
+            letterAvatar(user)
+        }
+    }
+
+    private func letterAvatar(_ user: Video.UserRef) -> some View {
+        Circle()
+            .fill(Color.accentColor.opacity(0.8))
+            .frame(width: 32, height: 32)
+            .overlay {
+                Text(String(user.username.prefix(1)).uppercased())
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+            }
     }
 
     private func load() async {

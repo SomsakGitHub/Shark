@@ -40,27 +40,35 @@ final class PlayerLayerUIView: UIView {
 
 struct FeedView: View {
     let mode: FeedMode
+    var onGoToSearch: (() -> Void)? = nil
 
     @StateObject private var feed: FeedModel
     @StateObject private var playerModel = PlayerModel()
     @State private var currentKey: String?
+    @State private var currentIndex = 0
+    @State private var profileTarget: ProfileTarget?
 
-    init(mode: FeedMode) {
+    init(mode: FeedMode, onGoToSearch: (() -> Void)? = nil) {
         self.mode = mode
+        self.onGoToSearch = onGoToSearch
         _feed = StateObject(wrappedValue: FeedModel(mode: mode))
     }
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(feed.videos.indices, id: \.self) { index in
-                        GeometryReader { cell in
-                            let midY = cell.frame(in: .global).midY
-                            let centerY = proxy.size.height / 2
-                            let isActive = abs(midY - centerY) < centerY
+            ZStack {
+                Color.black
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(feed.videos.indices, id: \.self) { index in
+                            GeometryReader { cell in
+                                let midY = cell.frame(in: .global).midY
+                                let centerY = proxy.size.height / 2
+                                let isActive = abs(midY - centerY) < centerY
 
-                            VideoCell(video: feed.videos[index], playerModel: playerModel)
+                                VideoCell(video: feed.videos[index], playerModel: playerModel) {
+                                    profileTarget = ProfileTarget(id: feed.videos[index].user.id)
+                                }
                                 .onChange(of: isActive) { _, active in
                                     if active {
                                         activate(index)
@@ -68,29 +76,73 @@ struct FeedView: View {
                                         playerModel.pause()
                                     }
                                 }
-                        }
-                        .frame(height: proxy.size.height)
-                        .onAppear {
-                            if index >= feed.videos.count - 2 {
-                                Task { await feed.loadMore() }
+                            }
+                            .frame(height: proxy.size.height)
+                            .onAppear {
+                                if index >= feed.videos.count - 2 {
+                                    Task { await feed.loadMore() }
+                                }
                             }
                         }
                     }
+                    .scrollTargetLayout()
                 }
-                .scrollTargetLayout()
+                .scrollTargetBehavior(.paging)
+                .ignoresSafeArea()
+                .refreshable {
+                    await feed.refresh()
+                    if !feed.videos.isEmpty {
+                        let target = min(currentIndex, feed.videos.count - 1)
+                        activate(target)
+                    }
+                }
+                .task {
+                    await feed.loadIfNeeded()
+                    if let first = feed.videos.first {
+                        activate(0)
+                    }
+                }
+
+                if mode == .following && feed.videos.isEmpty && !feed.isLoading {
+                    followingEmptyState
+                }
             }
-            .scrollTargetBehavior(.paging)
-            .ignoresSafeArea()
-            .task {
-                await feed.loadIfNeeded()
-                if let first = feed.videos.first {
-                    activate(0)
-                }
+            .sheet(item: $profileTarget) { target in
+                ProfileView(userId: target.id)
             }
         }
     }
 
+    private var followingEmptyState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Nothing here yet")
+                .font(.title3.bold())
+                .foregroundStyle(.white)
+            Text("Follow people to see their videos in this feed.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if let onGoToSearch {
+                Button(action: onGoToSearch) {
+                    Text("Find People")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(.white, in: Capsule())
+                        .foregroundStyle(.black)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 32)
+    }
+
     private func activate(_ index: Int) {
+        currentIndex = index
         let video = feed.videos[index]
         if currentKey != video.key {
             currentKey = video.key
@@ -105,9 +157,14 @@ struct FeedView: View {
     }
 }
 
+private struct ProfileTarget: Identifiable {
+    let id: String
+}
+
 struct VideoCell: View {
     let video: Video
     @ObservedObject var playerModel: PlayerModel
+    var onUserTap: (() -> Void)? = nil
 
     @State private var showHeart = false
     @State private var heartScale: CGFloat = 0.4
@@ -122,8 +179,17 @@ struct VideoCell: View {
                 Spacer()
                 HStack(alignment: .bottom, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("@\(video.user.username)")
-                            .font(.subheadline.bold())
+                        HStack(spacing: 8) {
+                            avatar(video.user)
+                            Button {
+                                onUserTap?()
+                            } label: {
+                                Text("@\(video.user.username)")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if !video.caption.isEmpty {
                             Text(video.caption)
                                 .font(.footnote)
@@ -174,6 +240,36 @@ struct VideoCell: View {
         .ignoresSafeArea()
     }
 
+    @ViewBuilder
+    private func avatar(_ user: Video.UserRef) -> some View {
+        if let path = user.avatarUrl, let url = URL.shark(path) {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    letterAvatar(user)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .clipShape(Circle())
+        } else {
+            letterAvatar(user)
+        }
+    }
+
+    private func letterAvatar(_ user: Video.UserRef) -> some View {
+        Circle()
+            .fill(.white.opacity(0.25))
+            .frame(width: 30, height: 30)
+            .overlay {
+                Text(String(user.username.prefix(1)).uppercased())
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+    }
+
     private var muteButton: some View {
         Button {
             playerModel.toggleMute()
@@ -217,11 +313,12 @@ struct VideoCell: View {
 }
 
 struct FeedRootView: View {
+    var onGoToSearch: (() -> Void)? = nil
     @State private var mode: FeedMode = .forYou
 
     var body: some View {
         ZStack {
-            FeedView(mode: mode)
+            FeedView(mode: mode, onGoToSearch: onGoToSearch)
                 .id(mode)
 
             VStack {

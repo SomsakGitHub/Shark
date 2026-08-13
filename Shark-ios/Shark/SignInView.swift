@@ -39,16 +39,22 @@ struct SignInView: View {
 }
 
 struct AppTabView: View {
+    @State private var selectedTab = 0
+
     var body: some View {
-        TabView {
-            FeedRootView()
+        TabView(selection: $selectedTab) {
+            FeedRootView(onGoToSearch: { selectedTab = 1 })
                 .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(0)
             SearchView()
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag(1)
             UploadView()
                 .tabItem { Label("Upload", systemImage: "plus.app.fill") }
+                .tag(2)
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.fill") }
+                .tag(3)
         }
     }
 }
