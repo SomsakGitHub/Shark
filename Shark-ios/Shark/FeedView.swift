@@ -53,7 +53,7 @@ struct FeedView: View {
                             let centerY = proxy.size.height / 2
                             let isActive = abs(midY - centerY) < centerY
 
-                            VideoCell(video: feed.videos[index], player: playerModel.player)
+                            VideoCell(video: feed.videos[index], playerModel: playerModel)
                                 .onChange(of: isActive) { _, active in
                                     if active {
                                         activate(index)
@@ -87,20 +87,28 @@ struct FeedView: View {
         let video = feed.videos[index]
         if currentKey != video.key {
             currentKey = video.key
-            playerModel.replace(with: video.streamURL)
+            playerModel.play(video)
+        } else {
+            playerModel.play()
         }
-        playerModel.play()
+        let nextIndex = index + 1
+        if feed.videos.indices.contains(nextIndex) {
+            playerModel.prepare(feed.videos[nextIndex])
+        }
     }
 }
 
 struct VideoCell: View {
     let video: Video
-    let player: AVPlayer
+    @ObservedObject var playerModel: PlayerModel
+
+    @State private var showHeart = false
+    @State private var heartScale: CGFloat = 0.4
 
     var body: some View {
         ZStack {
             Color.black
-            PlayerLayerView(player: player)
+            PlayerLayerView(player: playerModel.player)
                 .clipped()
 
             VStack {
@@ -133,7 +141,70 @@ struct VideoCell: View {
                     endPoint: .bottom
                 )
             )
+
+            if showHeart {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 90))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 12)
+                    .scaleEffect(heartScale)
+                    .opacity(showHeart ? 1 : 0)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            muteButton
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            triggerLikeHeart()
+        }
+        .onTapGesture(count: 1) {
+            playerModel.togglePlay()
         }
         .ignoresSafeArea()
+    }
+
+    private var muteButton: some View {
+        Button {
+            playerModel.toggleMute()
+        } label: {
+            Image(systemName: playerModel.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(.black.opacity(0.35), in: Circle())
+        }
+    }
+
+    private func triggerLikeHeart() {
+        guard !showHeart else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) {
+            showHeart = true
+            heartScale = 1
+        }
+        likeVideo()
+        Task {
+            try? await Task.sleep(for: .seconds(0.9))
+            withAnimation(.easeOut(duration: 0.25)) {
+                showHeart = false
+                heartScale = 0.4
+            }
+        }
+    }
+
+    private func likeVideo() {
+        Task {
+            do {
+                let _: LikeResponse = try await APIClient.shared.request(
+                    "/api/videos/\(video.id)/like",
+                    method: "POST"
+                )
+            } catch {
+                print("Double-tap like failed: \(error.localizedDescription)")
+            }
+        }
     }
 }

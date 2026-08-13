@@ -40,13 +40,22 @@ struct ProfileView: View {
                                 spacing: 2
                             ) {
                                 ForEach(videos) { video in
-                                    Rectangle()
-                                        .fill(Color.gray.opacity(0.3))
-                                        .aspectRatio(9.0 / 16.0, contentMode: .fit)
-                                        .overlay {
-                                            Image(systemName: "play.fill")
-                                                .foregroundStyle(.white)
+                                    AsyncImage(url: video.thumbnailURL) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(9.0 / 16.0, contentMode: .fit)
+                                        default:
+                                            Rectangle()
+                                                .fill(Color.gray.opacity(0.3))
+                                                .aspectRatio(9.0 / 16.0, contentMode: .fit)
+                                                .overlay {
+                                                    Image(systemName: "play.fill")
+                                                        .foregroundStyle(.white)
+                                                }
                                         }
+                                    }
                                 }
                             }
                             .padding(.top, 8)

@@ -184,6 +184,27 @@ app.get('/api/file/:key', async (c) => {
   return new Response(obj.body, { status: 200, headers });
 });
 
+app.put('/api/thumbnail/:key', requireAuth, async (c) => {
+  const key = c.req.param('key');
+  const contentType = c.req.header('Content-Type') ?? 'image/jpeg';
+  if (!/^image\//.test(contentType)) return c.json({ error: 'must upload image content' }, 415);
+  const body = c.req.raw.body;
+  if (!body) return c.json({ error: 'empty body' }, 400);
+  await c.env.VIDEOS.put(`${key}.jpg`, body, { httpMetadata: { contentType } });
+  return c.json({ key });
+});
+
+app.get('/api/thumb/:key', async (c) => {
+  const key = c.req.param('key');
+  const obj = await c.env.VIDEOS.get(`${key}.jpg`);
+  if (!obj) return c.notFound();
+  const headers = new Headers();
+  headers.set('Content-Type', obj.httpMetadata?.contentType ?? 'image/jpeg');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  headers.set('Content-Length', obj.size.toString());
+  return new Response(obj.body, { status: 200, headers });
+});
+
 app.post('/api/videos/:id/like', requireAuth, async (c) => {
   const me = c.get('user').id;
   const videoId = c.req.param('id');

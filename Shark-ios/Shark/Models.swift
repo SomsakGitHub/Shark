@@ -26,6 +26,10 @@ struct Video: Codable, Identifiable, Hashable {
     var streamURL: URL {
         SharkConfig.baseURL.appending(path: "/api/file/\(key)")
     }
+
+    var thumbnailURL: URL {
+        SharkConfig.baseURL.appending(path: "/api/thumb/\(key)")
+    }
 }
 
 struct Comment: Codable, Identifiable, Hashable {

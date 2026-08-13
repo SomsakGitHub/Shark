@@ -25,8 +25,8 @@ const DEMO_USERS = [
 ];
 
 const VIDEOS = [
-  { file: 'flower.mp4', caption: 'ชมความงามของธรรมชาติระหว่างทางขึ้นเขา #flower #nature' },
-  { file: 'bbb10s.mp4', caption: 'บิ๊กบั๊กบันนี่กลับมาแล้ว #animation #fun' },
+  { file: 'flower.mp4', thumb: 'flower.jpg', caption: 'ชมความงามของธรรมชาติระหว่างทางขึ้นเขา #flower #nature' },
+  { file: 'bbb10s.mp4', thumb: 'bbb10s.jpg', caption: 'บิ๊กบั๊กบันนี่กลับมาแล้ว #animation #fun' },
 ];
 
 async function createUser(user) {
@@ -63,13 +63,24 @@ async function uploadVideo(token, user, file) {
   if (!uploadRes.ok) throw new Error(`upload failed: ${uploadRes.status} ${await uploadRes.text()}`);
   const { key } = await uploadRes.json();
 
+  const config = VIDEOS.find((v) => v.file === file);
+  const thumbData = readFileSync(new URL(`../samples/${config.thumb}`, import.meta.url));
+  await fetch(`${BASE_URL}/api/thumbnail/${key}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'image/jpeg',
+    },
+    body: thumbData,
+  });
+
   const createRes = await fetch(`${BASE_URL}/api/videos`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ key, caption: VIDEOS.find((v) => v.file === file).caption }),
+    body: JSON.stringify({ key, caption: config.caption }),
   });
   if (!createRes.ok) throw new Error(`create failed: ${createRes.status} ${await createRes.text()}`);
   const { video } = await createRes.json();

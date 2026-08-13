@@ -125,4 +125,20 @@ final class APIClient {
         struct UploadResponse: Codable { let key: String }
         return try decoder.decode(UploadResponse.self, from: responseData).key
     }
+
+    func uploadThumbnail(key: String, data: Data) async throws {
+        var request = URLRequest(url: SharkConfig.baseURL.appending(path: "/api/thumbnail/\(key)"))
+        request.httpMethod = "PUT"
+        if let token = AuthStore.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw APIError.invalidResponse
+        }
+    }
 }
