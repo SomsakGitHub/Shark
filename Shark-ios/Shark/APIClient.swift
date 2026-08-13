@@ -71,6 +71,22 @@ enum AuthStore {
     }
 }
 
+final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+    var onProgress: ((Double) -> Void)?
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        let fraction = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+        onProgress?(fraction)
+    }
+}
+
 final class APIClient {
     static let shared = APIClient()
     private let decoder = JSONDecoder.shark()
@@ -108,7 +124,7 @@ final class APIClient {
         return try decoder.decode(T.self, from: data)
     }
 
-    func uploadVideo(key: String, data: Data) async throws -> String {
+    func uploadVideo(key: String, data: Data, progress: ((Double) -> Void)? = nil) async throws -> String {
         var request = URLRequest(url: SharkConfig.baseURL.appending(path: "/api/upload/\(key)"))
         request.httpMethod = "PUT"
         if let token = AuthStore.token {
@@ -117,7 +133,12 @@ final class APIClient {
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         request.httpBody = data
 
-        let (responseData, response) = try await URLSession.shared.data(for: request)
+        let delegate = UploadProgressDelegate()
+        delegate.onProgress = progress
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: .main)
+        defer { session.finishTasksAndInvalidate() }
+
+        let (responseData, response) = try await session.upload(for: request, from: data)
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
             throw APIError.invalidResponse
