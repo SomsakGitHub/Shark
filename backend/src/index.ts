@@ -112,7 +112,7 @@ app.put('/api/upload/:key', requireAuth, async (c) => {
   const key = c.req.param('key');
   const contentType = c.req.header('Content-Type') ?? 'video/mp4';
   if (!/^video\//.test(contentType)) return c.json({ error: 'must upload video content' }, 415);
-  const fullKey = `u/${user.id}/${key}`;
+  const fullKey = `${user.id}-${key}`;
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
   await c.env.VIDEOS.put(fullKey, body, { httpMetadata: { contentType } });
@@ -137,17 +137,47 @@ app.post('/api/videos', requireAuth, async (c) => {
 app.get('/api/file/:key', async (c) => {
   const key = c.req.param('key');
   if (!key) return c.notFound();
-  const range = c.req.header('Range');
-  const obj = range ? await c.env.VIDEOS.get(key, { range }) : await c.env.VIDEOS.get(key);
+
+  const rangeHeader = c.req.header('Range');
+  let r2Range: R2Range | undefined;
+  let start = 0;
+  let end = start;
+
+  if (rangeHeader) {
+    const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+    if (match && (match[1] !== '' || match[2] !== '')) {
+      const head = await c.env.VIDEOS.head(key);
+      const total = head?.size ?? 0;
+      if (match[1] === '') {
+        const suffix = Number(match[2]);
+        start = Math.max(0, total - suffix);
+        end = total - 1;
+      } else {
+        start = Number(match[1]);
+        end = match[2] === '' ? total - 1 : Math.min(Number(match[2]), total - 1);
+      }
+      if (start > end || start >= total) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${total}` },
+        });
+      }
+      r2Range = { offset: start, length: end - start + 1 };
+    }
+  }
+
+  const obj = r2Range
+    ? await c.env.VIDEOS.get(key, { range: r2Range })
+    : await c.env.VIDEOS.get(key);
   if (!obj) return c.notFound();
 
   const headers = new Headers();
   headers.set('Content-Type', obj.httpMetadata?.contentType ?? 'video/mp4');
   headers.set('Accept-Ranges', 'bytes');
   headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  if (obj.range) {
-    headers.set('Content-Range', obj.range as string);
-    headers.set('Content-Length', obj.size.toString());
+  if (r2Range) {
+    headers.set('Content-Range', `bytes ${start}-${end}/${obj.size}`);
+    headers.set('Content-Length', (end - start + 1).toString());
     return new Response(obj.body, { status: 206, headers });
   }
   headers.set('Content-Length', obj.size.toString());
