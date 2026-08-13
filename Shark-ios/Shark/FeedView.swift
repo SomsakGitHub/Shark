@@ -132,13 +132,13 @@ struct VideoCell: View {
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 88)
 
                     Spacer()
 
                     VideoActions(video: video)
                         .padding(.trailing, 12)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 88)
                 }
             }
             .background(
@@ -161,7 +161,7 @@ struct VideoCell: View {
         }
         .overlay(alignment: .topTrailing) {
             muteButton
-                .padding(.top, 8)
+                .padding(.top, 56)
                 .padding(.trailing, 12)
         }
         .contentShape(Rectangle())
@@ -232,7 +232,7 @@ struct FeedRootView: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 5)
                 .background(.black.opacity(0.45), in: Capsule())
-                .padding(.top, 12)
+                .padding(.top, 54)
                 Spacer()
             }
         }
