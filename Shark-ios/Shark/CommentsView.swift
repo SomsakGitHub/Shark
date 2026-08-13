@@ -3,6 +3,7 @@ import SwiftUI
 struct CommentsView: View {
     let videoID: String
 
+    @EnvironmentObject private var auth: AuthManager
     @State private var comments: [Comment] = []
     @State private var text = ""
     @State private var isLoading = false
@@ -39,6 +40,16 @@ struct CommentsView: View {
                                 .font(.caption.bold())
                             Text(comment.text)
                                 .font(.subheadline)
+                        }
+                        Spacer()
+                        if comment.user.id == auth.user?.id {
+                            Button {
+                                Task { await deleteComment(comment) }
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .listRowSeparator(.hidden)
@@ -94,6 +105,18 @@ struct CommentsView: View {
             focused = false
         } catch {
             print("Post comment failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func deleteComment(_ comment: Comment) async {
+        do {
+            let response: CommentsResponse = try await APIClient.shared.request(
+                "/api/videos/\(videoID)/comments/\(comment.id)",
+                method: "DELETE"
+            )
+            comments = response.comments
+        } catch {
+            print("Delete comment failed: \(error.localizedDescription)")
         }
     }
 }

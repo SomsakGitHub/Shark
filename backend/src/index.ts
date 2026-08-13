@@ -384,8 +384,7 @@ app.get('/api/videos/:id/comments', async (c) => {
   return c.json({ comments });
 });
 
-app.post('/api/videos/:id/comments', requireAuth, async (c) => {
-  const me = c.get('user');
+app.post('/api/videos/:id/comments', requireAuth, async (c) => {  const me = c.get('user');
   const videoId = c.req.param('id');
   const body = await c.req.json<{ text?: string }>();
   const text = (body.text ?? '').trim();
@@ -409,6 +408,51 @@ app.post('/api/videos/:id/comments', requireAuth, async (c) => {
     user: { id: r.user_id, username: r.username, avatar_url: r.avatar_url },
   }));
   return c.json({ comments }, 201);
+});
+
+app.delete('/api/videos/:id/comments/:commentId', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const videoId = c.req.param('id');
+  const commentId = c.req.param('commentId');
+  const db = getDb(c.env);
+  const rows = (await db`
+    select user_id from comments where id = ${commentId} and video_id = ${videoId}
+  `) as unknown as { user_id: string }[];
+  if (rows.length === 0) return c.notFound();
+  if (rows[0].user_id !== me) return c.json({ error: 'not your comment' }, 403);
+  await db`delete from comments where id = ${commentId}`;
+  const all = await db`
+    select cm.id, cm.text, cm.created_at, u.id as user_id, u.username, u.avatar_url
+    from comments cm
+    join users u on u.id = cm.user_id
+    where cm.video_id = ${videoId}
+    order by cm.created_at asc
+  ` as unknown as Record<string, unknown>[];
+  const comments = all.map((r) => ({
+    id: r.id,
+    text: r.text,
+    createdAt: r.created_at,
+    user: { id: r.user_id, username: r.username, avatar_url: r.avatar_url },
+  }));
+  return c.json({ comments });
+});
+
+app.delete('/api/videos/:id', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const videoId = c.req.param('id');
+  const db = getDb(c.env);
+  const rows = (await db`
+    select key, user_id from videos where id = ${videoId}
+  `) as unknown as { key: string; user_id: string }[];
+  if (rows.length === 0) return c.notFound();
+  if (rows[0].user_id !== me) return c.json({ error: 'not your video' }, 403);
+  const videoKey = rows[0].key;
+  await db`delete from videos where id = ${videoId}`;
+  await Promise.all([
+    c.env.VIDEOS.delete(videoKey),
+    c.env.VIDEOS.delete(`${videoKey}.jpg`),
+  ]);
+  return c.json({ deleted: true });
 });
 
 app.post('/api/users/:id/follow', requireAuth, async (c) => {

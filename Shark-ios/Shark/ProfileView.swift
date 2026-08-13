@@ -8,6 +8,7 @@ struct ProfileView: View {
     @State private var isLoading = false
     @State private var isFollowing = false
     @State private var showEditProfile = false
+    @State private var videoToDelete: Video?
 
     private var user: APIUser? {
         profile?.user ?? auth.user
@@ -74,6 +75,15 @@ struct ProfileView: View {
                                                 }
                                         }
                                     }
+                                    .contextMenu {
+                                        if isOwnProfile {
+                                            Button(role: .destructive) {
+                                                videoToDelete = video
+                                            } label: {
+                                                Label("Delete Video", systemImage: "trash")
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             .padding(.top, 8)
@@ -105,6 +115,16 @@ struct ProfileView: View {
                 EditProfileView(user: user) {
                     Task { await load() }
                 }
+            }
+            .alert(item: $videoToDelete) { video in
+                Alert(
+                    title: Text("Delete video?"),
+                    message: Text("This video will be removed permanently."),
+                    primaryButton: .destructive(Text("Delete")) {
+                        Task { await deleteVideo(video) }
+                    },
+                    secondaryButton: .cancel()
+                )
             }
         }
     }
@@ -205,6 +225,18 @@ struct ProfileView: View {
             } catch {
                 print("Follow failed: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func deleteVideo(_ video: Video) async {
+        do {
+            let _: DeletedResponse = try await APIClient.shared.request(
+                "/api/videos/\(video.id)",
+                method: "DELETE"
+            )
+            await load()
+        } catch {
+            print("Delete video failed: \(error.localizedDescription)")
         }
     }
 }
