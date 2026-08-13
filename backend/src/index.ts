@@ -513,6 +513,40 @@ app.get('/api/users/:id', requireAuth, async (c) => {
   });
 });
 
+app.get('/api/users/:id/followers', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const userId = c.req.param('id');
+  const db = getDb(c.env);
+  const rows = (await db`
+    select u.id, u.username, u.avatar_url,
+      (select count(*)::int from follows f where f.followee_id = u.id) as follower_count,
+      exists(select 1 from follows f where f.follower_id = ${me} and f.followee_id = u.id) as followed_by_me
+    from follows fo
+    join users u on u.id = fo.follower_id
+    where fo.followee_id = ${userId}
+    order by fo.created_at desc
+    limit 50
+  `) as unknown as Record<string, unknown>[];
+  return c.json({ users: rows.map(mapUserSummary) });
+});
+
+app.get('/api/users/:id/following', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const userId = c.req.param('id');
+  const db = getDb(c.env);
+  const rows = (await db`
+    select u.id, u.username, u.avatar_url,
+      (select count(*)::int from follows f where f.followee_id = u.id) as follower_count,
+      exists(select 1 from follows f where f.follower_id = ${me} and f.followee_id = u.id) as followed_by_me
+    from follows fo
+    join users u on u.id = fo.followee_id
+    where fo.follower_id = ${userId}
+    order by fo.created_at desc
+    limit 50
+  `) as unknown as Record<string, unknown>[];
+  return c.json({ users: rows.map(mapUserSummary) });
+});
+
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, '&amp;')

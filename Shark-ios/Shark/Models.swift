@@ -111,6 +111,10 @@ struct FollowResponse: Codable {
     let followerCount: Int
 }
 
+struct UsersResponse: Codable {
+    let users: [UserSummary]
+}
+
 struct DeletedResponse: Codable {
     let deleted: Bool
 }

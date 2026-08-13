@@ -9,6 +9,7 @@ struct ProfileView: View {
     @State private var isFollowing = false
     @State private var showEditProfile = false
     @State private var videoToDelete: Video?
+    @State private var listMode: UserListMode?
 
     private var user: APIUser? {
         profile?.user ?? auth.user
@@ -42,8 +43,18 @@ struct ProfileView: View {
                         if let counts = profile?.counts {
                             HStack(spacing: 32) {
                                 stat(value: counts.videoCount, label: "Videos")
-                                stat(value: counts.followerCount, label: "Followers")
-                                stat(value: counts.followingCount, label: "Following")
+                                Button {
+                                    listMode = .followers(profileId)
+                                } label: {
+                                    stat(value: counts.followerCount, label: "Followers")
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    listMode = .following(profileId)
+                                } label: {
+                                    stat(value: counts.followingCount, label: "Following")
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
 
@@ -125,6 +136,9 @@ struct ProfileView: View {
                     },
                     secondaryButton: .cancel()
                 )
+            }
+            .sheet(item: $listMode) { mode in
+                UserListView(mode: mode)
             }
         }
     }
