@@ -5,20 +5,17 @@ struct RootView: View {
     @StateObject private var deepLink = DeepLinkHandler()
 
     var body: some View {
-        Group {
-            if auth.isSignedIn {
-                AppTabView()
-            } else {
+        AppTabView()
+            .preferredColorScheme(.dark)
+            .onOpenURL { url in
+                guard auth.isSignedIn else { return }
+                deepLink.handle(url)
+            }
+            .fullScreenCover(item: $deepLink.pendingVideo) { video in
+                VideoPreviewSheet(video: video)
+            }
+            .sheet(isPresented: $auth.showSignInPrompt) {
                 SignInView()
             }
-        }
-        .preferredColorScheme(.dark)
-        .onOpenURL { url in
-            guard auth.isSignedIn else { return }
-            deepLink.handle(url)
-        }
-        .fullScreenCover(item: $deepLink.pendingVideo) { video in
-            VideoPreviewSheet(video: video)
-        }
     }
 }

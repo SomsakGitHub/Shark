@@ -45,12 +45,20 @@ struct ProfileView: View {
                             HStack(spacing: 32) {
                                 stat(value: counts.videoCount, label: "Videos")
                                 Button {
+                                    guard auth.isSignedIn else {
+                                        auth.showSignInPrompt = true
+                                        return
+                                    }
                                     listMode = .followers(profileId)
                                 } label: {
                                     stat(value: counts.followerCount, label: "Followers")
                                 }
                                 .buttonStyle(.plain)
                                 Button {
+                                    guard auth.isSignedIn else {
+                                        auth.showSignInPrompt = true
+                                        return
+                                    }
                                     listMode = .following(profileId)
                                 } label: {
                                     stat(value: counts.followingCount, label: "Following")
@@ -200,6 +208,7 @@ struct ProfileView: View {
 
     private var followButton: some View {
         Button {
+            if auth.requireSignIn() { return }
             toggleFollow()
         } label: {
             Text(isFollowing ? "Following" : "Follow")

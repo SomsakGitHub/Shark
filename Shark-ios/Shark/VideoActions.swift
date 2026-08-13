@@ -9,6 +9,7 @@ struct VideoActions: View {
     @State private var likeCount: Int
     @State private var commentCount: Int
     @State private var showingComments = false
+    @EnvironmentObject private var auth: AuthManager
 
     init(
         video: Video,
@@ -66,6 +67,10 @@ struct VideoActions: View {
     }
 
     private func toggleLike() async {
+        guard auth.isSignedIn else {
+            auth.showSignInPrompt = true
+            return
+        }
         do {
             let response: LikeResponse = try await APIClient.shared.request(
                 "/api/videos/\(video.id)/like",

@@ -137,6 +137,7 @@ struct SearchView: View {
 
 struct UserRow: View {
     @State var user: UserSummary
+    @EnvironmentObject private var auth: AuthManager
 
     var body: some View {
         HStack(spacing: 12) {
@@ -177,6 +178,7 @@ struct UserRow: View {
     }
 
     private func toggleFollow() {
+        if auth.requireSignIn() { return }
         Task {
             do {
                 let response: FollowResponse = try await APIClient.shared.request(

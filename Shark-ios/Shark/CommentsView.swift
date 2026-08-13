@@ -114,6 +114,10 @@ struct CommentsView: View {
     }
 
     private func postComment() async {
+        guard auth.isSignedIn else {
+            auth.showSignInPrompt = true
+            return
+        }
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         isPosting = true
@@ -137,6 +141,10 @@ struct CommentsView: View {
     }
 
     private func deleteComment(_ comment: Comment) async {
+        guard auth.isSignedIn else {
+            auth.showSignInPrompt = true
+            return
+        }
         do {
             let response: CommentsResponse = try await APIClient.shared.request(
                 "/api/videos/\(videoID)/comments/\(comment.id)",

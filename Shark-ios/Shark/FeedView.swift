@@ -194,6 +194,7 @@ struct VideoCell: View {
 
     @State private var showHeart = false
     @State private var heartScale: CGFloat = 0.4
+    @EnvironmentObject private var auth: AuthManager
 
     var body: some View {
         ZStack {
@@ -314,6 +315,7 @@ struct VideoCell: View {
 
     private func triggerLikeHeart() {
         guard !showHeart else { return }
+        if auth.requireSignIn() { return }
         Haptics.impact(.rigid)
         withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) {
             showHeart = true
@@ -346,6 +348,7 @@ struct VideoCell: View {
 struct FeedRootView: View {
     var onGoToSearch: (() -> Void)? = nil
     @State private var mode: FeedMode = .forYou
+    @EnvironmentObject private var auth: AuthManager
 
     var body: some View {
         ZStack {
@@ -369,6 +372,7 @@ struct FeedRootView: View {
 
     private func feedTab(_ title: String, _ tab: FeedMode) -> some View {
         Button {
+            if tab == .following && auth.requireSignIn() { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 mode = tab
             }

@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class AuthManager: ObservableObject {
     @Published private(set) var user: APIUser?
+    @Published var showSignInPrompt = false
 
     var isSignedIn: Bool {
         user != nil && AuthStore.token != nil
@@ -13,6 +14,13 @@ final class AuthManager: ObservableObject {
     init() {
         guard AuthStore.token != nil else { return }
         Task { await refreshMe() }
+    }
+
+    @discardableResult
+    func requireSignIn() -> Bool {
+        if isSignedIn { return false }
+        showSignInPrompt = true
+        return true
     }
 
     func handleSignIn(_ result: Result<ASAuthorization, Error>) {
@@ -62,6 +70,7 @@ final class AuthManager: ObservableObject {
         )
         AuthStore.save(response.token)
         user = response.user
+        showSignInPrompt = false
     }
 
     private func refreshMe() async {
