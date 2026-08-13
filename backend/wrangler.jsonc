@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shark-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "APP_BUNDLE_ID": "com.somsak.Shark"
+  },
+  "r2_buckets": [
+    {
+      "binding": "VIDEOS",
+      "bucket_name": "shark-videos",
+      "preview_bucket_name": "shark-videos-preview"
+    }
+  ]
+}
