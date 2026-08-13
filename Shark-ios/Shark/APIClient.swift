@@ -163,6 +163,11 @@ final class APIClient {
         }
     }
 
+    func fetchVideo(id: String) async throws -> Video {
+        let response: VideoResponse = try await request("/api/videos/\(id)")
+        return response.video
+    }
+
     func updateProfile(username: String, bio: String) async throws -> APIUser {
         let payload = try JSONEncoder.shark().encode(UpdateProfileRequest(username: username, bio: bio))
         let response: MeResponse = try await request("/api/me", method: "PATCH", body: payload)

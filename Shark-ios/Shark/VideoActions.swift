@@ -25,7 +25,7 @@ struct VideoActions: View {
             }
             Text("\(video.commentCount)").font(.caption2)
 
-            ShareLink(item: video.streamURL) {
+            ShareLink(item: video.shareURL, subject: Text("Check out this video on Shark")) {
                 Image(systemName: "arrowshape.turn.up.right")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.white)

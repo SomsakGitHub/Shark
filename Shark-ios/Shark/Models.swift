@@ -31,6 +31,10 @@ struct Video: Codable, Identifiable, Hashable {
     var thumbnailURL: URL {
         SharkConfig.baseURL.appending(path: "/api/thumb/\(key)")
     }
+
+    var shareURL: URL {
+        SharkConfig.baseURL.appending(path: "/v/\(id)")
+    }
 }
 
 struct Comment: Codable, Identifiable, Hashable {
@@ -64,6 +68,10 @@ struct MeResponse: Codable {
 }
 
 struct VideoCreateResponse: Codable {
+    let video: Video
+}
+
+struct VideoResponse: Codable {
     let video: Video
 }
 

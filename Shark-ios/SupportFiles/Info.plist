@@ -11,5 +11,16 @@
 	<string>Shark needs camera access to record videos to post.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Shark needs microphone access to record audio with your videos.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.somsak.Shark</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>shark</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

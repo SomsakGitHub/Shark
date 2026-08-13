@@ -165,6 +165,25 @@ app.get('/api/videos/following', requireAuth, async (c) => {
   return c.json(await fetchFeed(getDb(c.env), me, limit, cursor, true));
 });
 
+app.get('/api/videos/:id', requireAuth, async (c) => {
+  const me = c.get('user').id;
+  const videoId = c.req.param('id');
+  const db = getDb(c.env);
+  const rows = await db`
+    select
+      v.id, v.key, v.caption, v.created_at,
+      u.id as user_id, u.username, u.avatar_url,
+      (select count(*)::int from likes l where l.video_id = v.id) as like_count,
+      (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
+      exists(select 1 from likes l where l.video_id = v.id and l.user_id = ${me}) as liked_by_me
+    from videos v
+    join users u on u.id = v.user_id
+    where v.id = ${videoId}
+  ` as unknown as Record<string, unknown>[];
+  if (rows.length === 0) return c.notFound();
+  return c.json({ video: mapVideo(rows[0]) });
+});
+
 const mapUserSummary = (r: Record<string, unknown>) => ({
   id: r.id,
   username: r.username,
@@ -448,6 +467,74 @@ app.get('/api/users/:id', requireAuth, async (c) => {
     },
     videos: videoRows.map(mapVideo),
   });
+});
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+app.get('/v/:id', async (c) => {
+  const videoId = c.req.param('id');
+  const db = getDb(c.env);
+  const rows = (await db`
+    select v.id, v.key, v.caption, u.username
+    from videos v join users u on u.id = v.user_id
+    where v.id = ${videoId}
+  `) as unknown as Record<string, unknown>[];
+  if (rows.length === 0) return c.notFound();
+  const video = rows[0];
+  const origin = new URL(c.req.url).origin;
+  const webUrl = `${origin}/v/${video.id}`;
+  const deepLink = `shark://video/${video.id}`;
+  const caption = typeof video.caption === 'string' ? escapeHtml(video.caption) : '';
+
+  return c.html(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta property="og:title" content="@${video.username} on Shark">
+<meta property="og:description" content="Watch this video on Shark">
+<title>@${video.username} on Shark</title>
+<style>
+  body { margin:0; background:#000; color:#fff; font-family:-apple-system,system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+  .wrap { width:100%; max-width:420px; padding:16px; box-sizing:border-box; }
+  video { width:100%; aspect-ratio:9/16; background:#111; border-radius:16px; }
+  .meta { margin-top:12px; }
+  .user { font-weight:700; font-size:16px; }
+  .caption { color:#bbb; font-size:14px; margin-top:4px; }
+  .actions { display:flex; gap:12px; margin-top:16px; }
+  .btn { flex:1; text-align:center; padding:12px; border-radius:999px; font-weight:600; font-size:15px; }
+  .open { background:#fff; color:#000; text-decoration:none; }
+  .copy { background:#222; color:#fff; border:none; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <video src="/api/file/${video.key}" controls autoplay muted loop playsinline></video>
+  <div class="meta">
+    <div class="user">@${video.username}</div>
+    ${caption ? `<div class="caption">${caption}</div>` : ''}
+  </div>
+  <div class="actions">
+    <a class="btn open" href="${deepLink}">Open in Shark</a>
+    <button class="btn copy" onclick="copyLink()">Copy Link</button>
+  </div>
+</div>
+<script>
+async function copyLink() {
+  try {
+    await navigator.clipboard.writeText("${webUrl}");
+    document.querySelector('.copy').textContent = 'Copied!';
+  } catch (e) {}
+}
+</script>
+</body>
+</html>`);
 });
 
 app.onError((err, c) => {
