@@ -9,6 +9,7 @@ create table if not exists users (
   email text,
   username text not null,
   avatar_url text,
+  bio text,
   created_at timestamptz not null default now()
 );
 
@@ -49,3 +50,5 @@ create index if not exists idx_comments_video on comments (video_id, created_at)
 create index if not exists idx_comments_user on comments (user_id);
 create index if not exists idx_follows_followee on follows (followee_id);
 create index if not exists idx_follows_follower on follows (follower_id);
+create unique index if not exists idx_users_username on users (username);
+alter table users add column if not exists bio text;

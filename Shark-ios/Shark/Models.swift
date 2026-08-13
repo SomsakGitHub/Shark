@@ -5,6 +5,7 @@ struct APIUser: Codable, Identifiable, Hashable {
     let username: String
     let email: String?
     let avatarUrl: String?
+    let bio: String?
 }
 
 struct Video: Codable, Identifiable, Hashable {
@@ -109,6 +110,21 @@ struct ErrorResponse: Codable {
 struct VideoCreateRequest: Encodable {
     let key: String
     let caption: String
+}
+
+struct UpdateProfileRequest: Encodable {
+    let username: String
+    let bio: String
+}
+
+struct AvatarResponse: Codable {
+    let avatarUrl: String
+}
+
+extension URL {
+    static func shark(_ path: String) -> URL? {
+        URL(string: path, relativeTo: SharkConfig.baseURL)?.absoluteURL
+    }
 }
 
 extension JSONDecoder {

@@ -162,4 +162,27 @@ final class APIClient {
             throw APIError.invalidResponse
         }
     }
+
+    func updateProfile(username: String, bio: String) async throws -> APIUser {
+        let payload = try JSONEncoder.shark().encode(UpdateProfileRequest(username: username, bio: bio))
+        let response: MeResponse = try await request("/api/me", method: "PATCH", body: payload)
+        return response.user
+    }
+
+    func uploadAvatar(data: Data) async throws -> String {
+        var request = URLRequest(url: SharkConfig.baseURL.appending(path: "/api/me/avatar"))
+        request.httpMethod = "PUT"
+        if let token = AuthStore.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw APIError.invalidResponse
+        }
+        return try decoder.decode(AvatarResponse.self, from: responseData).avatarUrl
+    }
 }

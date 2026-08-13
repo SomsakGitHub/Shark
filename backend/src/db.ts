@@ -12,6 +12,7 @@ export interface UserRow {
   username: string;
   email: string | null;
   avatar_url: string | null;
+  bio: string | null;
 }
 
 export async function upsertUserByAppleSub(
@@ -25,14 +26,28 @@ export async function upsertUserByAppleSub(
     insert into users (apple_sub, email, username)
     values (${appleSub}, ${email}, ${username})
     on conflict (apple_sub) do update set email = excluded.email
-    returning id, username, email, avatar_url
+    returning id, username, email, avatar_url, bio
   `) as unknown as UserRow[];
   return rows[0];
 }
 
 export async function getUserById(db: Sql, userId: string): Promise<UserRow | null> {
-  const rows = (await db`select id, username, email, avatar_url from users where id = ${userId}`) as unknown as UserRow[];
+  const rows = (await db`select id, username, email, avatar_url, bio from users where id = ${userId}`) as unknown as UserRow[];
   return rows[0] ?? null;
+}
+
+export async function updateUserProfile(
+  db: Sql,
+  userId: string,
+  patch: { username: string; bio: string },
+): Promise<UserRow> {
+  const rows = (await db`
+    update users
+    set username = ${patch.username}, bio = ${patch.bio}
+    where id = ${userId}
+    returning id, username, email, avatar_url, bio
+  `) as unknown as UserRow[];
+  return rows[0];
 }
 
 export async function assertUserIsAuth(db: Sql, user: AuthUser): Promise<void> {

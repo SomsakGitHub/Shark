@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { verifyAppleIdentityToken, signAppToken, verifyAppToken } from './auth';
-import { getDb, upsertUserByAppleSub, getUserById } from './db';
+import { getDb, upsertUserByAppleSub, getUserById, updateUserProfile } from './db';
 import type { Env, AuthUser } from './types';
 
 type AppEnv = { Bindings: Env; Variables: { user: AuthUser } };
@@ -44,7 +44,58 @@ app.post('/api/auth/apple', async (c) => {
 
 app.get('/api/me', requireAuth, async (c) => {
   const user = c.get('user');
-  return c.json({ user });
+  const db = getDb(c.env);
+  const fresh = await getUserById(db, user.id);
+  if (!fresh) return c.json({ error: 'user not found' }, 401);
+  return c.json({ user: fresh });
+});
+
+app.patch('/api/me', requireAuth, async (c) => {
+  const me = c.get('user');
+  const body = await c.req.json<{ username?: string; bio?: string }>();
+  const username = (body.username ?? '').trim();
+  const bio = (body.bio ?? '').trim();
+  if (!/^[a-zA-Z0-9_.]{3,24}$/.test(username)) {
+    return c.json({ error: 'username must be 3-24 characters using letters, numbers, _ or .' }, 400);
+  }
+  if (bio.length > 160) {
+    return c.json({ error: 'bio must be 160 characters or fewer' }, 400);
+  }
+  const db = getDb(c.env);
+  try {
+    const updated = await updateUserProfile(db, me.id, { username, bio });
+    return c.json({ user: updated });
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') {
+      return c.json({ error: 'username already taken' }, 409);
+    }
+    throw err;
+  }
+});
+
+app.put('/api/me/avatar', requireAuth, async (c) => {
+  const user = c.get('user');
+  const contentType = c.req.header('Content-Type') ?? '';
+  if (!/^image\//.test(contentType)) return c.json({ error: 'must upload an image' }, 415);
+  const body = c.req.raw.body;
+  if (!body) return c.json({ error: 'empty body' }, 400);
+  const key = `avatar-${user.id}`;
+  await c.env.VIDEOS.put(key, body, { httpMetadata: { contentType } });
+  const avatarUrl = `/api/avatar/${user.id}`;
+  const db = getDb(c.env);
+  await db`update users set avatar_url = ${avatarUrl} where id = ${user.id}`;
+  return c.json({ avatarUrl });
+});
+
+app.get('/api/avatar/:id', async (c) => {
+  const id = c.req.param('id');
+  const obj = await c.env.VIDEOS.get(`avatar-${id}`);
+  if (!obj) return c.notFound();
+  const headers = new Headers();
+  headers.set('Content-Type', obj.httpMetadata?.contentType ?? 'image/jpeg');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  headers.set('Content-Length', obj.size.toString());
+  return new Response(obj.body, { status: 200, headers });
 });
 
 const mapVideo = (row: Record<string, unknown>) => ({
@@ -194,11 +245,13 @@ app.post('/api/videos', requireAuth, async (c) => {
   const body = await c.req.json<{ key?: string; caption?: string }>();
   if (!body.key) return c.json({ error: 'key required' }, 400);
   const db = getDb(c.env);
+  const me = await getUserById(db, user.id);
+  if (!me) return c.json({ error: 'user not found' }, 401);
   const rows = await db`
     insert into videos (user_id, key, caption)
     values (${user.id}, ${body.key}, ${body.caption ?? ''})
     returning id, key, caption, created_at,
-      ${user.id} as user_id, ${user.username} as username, ${user.avatar_url} as avatar_url,
+      ${user.id} as user_id, ${me.username} as username, ${me.avatar_url} as avatar_url,
       0 as like_count, 0 as comment_count, false as liked_by_me
   ` as unknown as Record<string, unknown>[];
   return c.json({ video: mapVideo(rows[0]) }, 201);

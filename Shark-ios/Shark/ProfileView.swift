@@ -7,6 +7,7 @@ struct ProfileView: View {
     @State private var profile: ProfileResponse?
     @State private var isLoading = false
     @State private var isFollowing = false
+    @State private var showEditProfile = false
 
     private var user: APIUser? {
         profile?.user ?? auth.user
@@ -25,17 +26,17 @@ struct ProfileView: View {
             ScrollView {
                 if let user {
                     VStack(spacing: 16) {
-                        Circle()
-                            .fill(Color.accentColor.opacity(0.85))
-                            .frame(width: 96, height: 96)
-                            .overlay {
-                                Text(String(user.username.prefix(1)).uppercased())
-                                    .font(.system(size: 40, weight: .bold))
-                                    .foregroundStyle(.white)
-                            }
+                        avatarView(for: user)
 
                         Text("@\(user.username)")
                             .font(.title3.bold())
+
+                        if let bio = user.bio, !bio.isEmpty {
+                            Text(bio)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
 
                         if let counts = profile?.counts {
                             HStack(spacing: 32) {
@@ -45,7 +46,9 @@ struct ProfileView: View {
                             }
                         }
 
-                        if !isOwnProfile {
+                        if isOwnProfile {
+                            editProfileButton
+                        } else {
                             followButton
                         }
 
@@ -98,7 +101,58 @@ struct ProfileView: View {
             .onChange(of: userId) { _, _ in
                 Task { await load() }
             }
+            .sheet(isPresented: $showEditProfile) {
+                EditProfileView(user: user) {
+                    Task { await load() }
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private func avatarView(for user: APIUser) -> some View {
+        if let avatarPath = user.avatarUrl, let url = URL.shark(avatarPath) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 96, height: 96)
+                        .clipShape(Circle())
+                default:
+                    letterAvatar(for: user)
+                }
+            }
+        } else {
+            letterAvatar(for: user)
+        }
+    }
+
+    private func letterAvatar(for user: APIUser) -> some View {
+        Circle()
+            .fill(Color.accentColor.opacity(0.85))
+            .frame(width: 96, height: 96)
+            .overlay {
+                Text(String(user.username.prefix(1)).uppercased())
+                    .font(.system(size: 40, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+    }
+
+    private var editProfileButton: some View {
+        Button {
+            showEditProfile = true
+        } label: {
+            Text("Edit Profile")
+                .font(.subheadline.bold())
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.gray.opacity(0.2), in: Capsule())
+                .foregroundStyle(.primary)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 48)
     }
 
     private var followButton: some View {

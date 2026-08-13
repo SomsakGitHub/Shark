@@ -47,6 +47,10 @@ final class AuthManager: ObservableObject {
         user = nil
     }
 
+    func refresh() async {
+        await refreshMe()
+    }
+
     private func exchange(identityToken: String, name: String?) async throws {
         var body: [String: String] = ["identityToken": identityToken]
         if let name { body["name"] = name }
