@@ -32,6 +32,40 @@ const optionalAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 const meOf = (c: Parameters<MiddlewareHandler<AppEnv>>[0]) =>
   (c.get('user') as AuthUser | undefined)?.id ?? '';
 
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+const contentLength = (c: Parameters<MiddlewareHandler<AppEnv>>[0]): number | null => {
+  const raw = c.req.header('Content-Length');
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+};
+
+function enforceMaxBytes(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let sent = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      sent += value.byteLength;
+      if (sent > maxBytes) {
+        await reader.cancel();
+        controller.error(new Error('body too large'));
+        return;
+      }
+      controller.enqueue(value);
+    },
+    cancel() {
+      reader.cancel();
+    },
+  });
+}
+
 app.get('/api/health', (c) => c.json({ ok: true }));
 
 app.post('/api/auth/apple', async (c) => {
@@ -89,10 +123,18 @@ app.put('/api/me/avatar', requireAuth, async (c) => {
   const user = c.get('user');
   const contentType = c.req.header('Content-Type') ?? '';
   if (!/^image\//.test(contentType)) return c.json({ error: 'must upload an image' }, 415);
+  const declared = contentLength(c);
+  if (declared != null && declared > MAX_IMAGE_BYTES) {
+    return c.json({ error: 'image too large (max 5 MB)' }, 413);
+  }
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
   const key = `avatar-${user.id}`;
-  await c.env.VIDEOS.put(key, body, { httpMetadata: { contentType } });
+  try {
+    await c.env.VIDEOS.put(key, enforceMaxBytes(body, MAX_IMAGE_BYTES), { httpMetadata: { contentType } });
+  } catch {
+    return c.json({ error: 'image too large (max 5 MB)' }, 413);
+  }
   const avatarUrl = `/api/avatar/${user.id}`;
   const db = getDb(c.env);
   await db`update users set avatar_url = ${avatarUrl} where id = ${user.id}`;
@@ -127,7 +169,7 @@ const mapVideo = (row: Record<string, unknown>) => ({
 
 const fetchFeed = async (db: ReturnType<typeof getDb>, me: string, limit: number, cursor: string | null | undefined, followingOnly: boolean) => {
   const followingWhere = followingOnly
-    ? `v.user_id in (select f.followee_id from follows f where f.follower_id = '${me}')`
+    ? `v.user_id in (select f.followee_id from follows f where f.follower_id = $1)`
     : null;
   const likedExpr =
     'exists(select 1 from likes l where l.video_id = v.id and l.user_id = nullif($1, \'\')::uuid)';
@@ -212,51 +254,65 @@ app.get('/api/search', optionalAuth, async (c) => {
   if (!q) return c.json({ users: [], videos: [] });
   const db = getDb(c.env);
   const pattern = `%${q}%`;
+  const meParam = me ? [me] : [];
+  const followedByMeExpr = me
+    ? `exists(select 1 from follows f where f.follower_id = $2 and f.followee_id = u.id)`
+    : 'false';
   const userRows = (await db(`
     select u.id, u.username, u.avatar_url,
       (select count(*)::int from follows f where f.followee_id = u.id) as follower_count,
-      ${me ? `exists(select 1 from follows f where f.follower_id = '${me}' and f.followee_id = u.id)` : 'false'} as followed_by_me
+      ${followedByMeExpr} as followed_by_me
     from users u
-    where ${me ? `u.id <> '${me}' and ` : ''}u.username ilike $1
+    where ${me ? `u.id <> $2 and ` : ''}u.username ilike $1
     order by follower_count desc
     limit 20
-  `, [pattern])) as unknown as Record<string, unknown>[];
+  `, [pattern, ...meParam])) as unknown as Record<string, unknown>[];
+  const likedByMeExpr = me
+    ? `exists(select 1 from likes l where l.video_id = v.id and l.user_id = $2)`
+    : 'false';
   const videoRows = (await db(`
     select v.id, v.key, v.caption, v.created_at,
       u.id as user_id, u.username, u.avatar_url,
       (select count(*)::int from likes l where l.video_id = v.id) as like_count,
       (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
-      ${me ? `exists(select 1 from likes l where l.video_id = v.id and l.user_id = '${me}')` : 'false'} as liked_by_me
+      ${likedByMeExpr} as liked_by_me
     from videos v join users u on u.id = v.user_id
     where v.caption ilike $1
     order by v.created_at desc
     limit 20
-  `, [pattern])) as unknown as Record<string, unknown>[];
+  `, [pattern, ...meParam])) as unknown as Record<string, unknown>[];
   return c.json({ users: userRows.map(mapUserSummary), videos: videoRows.map(mapVideo) });
 });
 
 app.get('/api/explore', optionalAuth, async (c) => {
   const me = meOf(c);
   const db = getDb(c.env);
+  const meParam = me ? [me] : [];
+  const userWhere = me
+    ? `u.id <> $1 and not exists(select 1 from follows f where f.follower_id = $1 and f.followee_id = u.id)`
+    : 'true';
   const userRows = (await db(`
     select u.id, u.username, u.avatar_url,
       (select count(*)::int from follows f where f.followee_id = u.id) as follower_count,
       false as followed_by_me
     from users u
-    where ${me ? `u.id <> '${me}' and not exists(select 1 from follows f where f.follower_id = '${me}' and f.followee_id = u.id)` : 'true'}
+    where ${userWhere}
     order by follower_count desc, u.created_at desc
     limit 10
-  `)) as unknown as Record<string, unknown>[];
+  `, meParam)) as unknown as Record<string, unknown>[];
+  const likedByMeExpr = me
+    ? `exists(select 1 from likes l where l.video_id = v.id and l.user_id = $1)`
+    : 'false';
   const videoRows = (await db(`
     select v.id, v.key, v.caption, v.created_at,
       u.id as user_id, u.username, u.avatar_url,
       (select count(*)::int from likes l where l.video_id = v.id) as like_count,
       (select count(*)::int from comments cm where cm.video_id = v.id) as comment_count,
-      ${me ? `exists(select 1 from likes l where l.video_id = v.id and l.user_id = '${me}')` : 'false'} as liked_by_me
+      ${likedByMeExpr} as liked_by_me
     from videos v join users u on u.id = v.user_id
     order by v.created_at desc
     limit 20
-  `)) as unknown as Record<string, unknown>[];
+  `, meParam)) as unknown as Record<string, unknown>[];
   return c.json({ users: userRows.map(mapUserSummary), videos: videoRows.map(mapVideo) });
 });
 
@@ -265,10 +321,18 @@ app.put('/api/upload/:key', requireAuth, async (c) => {
   const key = c.req.param('key');
   const contentType = c.req.header('Content-Type') ?? 'video/mp4';
   if (!/^video\//.test(contentType)) return c.json({ error: 'must upload video content' }, 415);
+  const declared = contentLength(c);
+  if (declared != null && declared > MAX_VIDEO_BYTES) {
+    return c.json({ error: 'video too large (max 100 MB)' }, 413);
+  }
   const fullKey = `${user.id}-${key}`;
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
-  await c.env.VIDEOS.put(fullKey, body, { httpMetadata: { contentType } });
+  try {
+    await c.env.VIDEOS.put(fullKey, enforceMaxBytes(body, MAX_VIDEO_BYTES), { httpMetadata: { contentType } });
+  } catch {
+    return c.json({ error: 'video too large (max 100 MB)' }, 413);
+  }
   return c.json({ key: fullKey });
 });
 
@@ -343,9 +407,17 @@ app.put('/api/thumbnail/:key', requireAuth, async (c) => {
   const key = c.req.param('key');
   const contentType = c.req.header('Content-Type') ?? 'image/jpeg';
   if (!/^image\//.test(contentType)) return c.json({ error: 'must upload image content' }, 415);
+  const declared = contentLength(c);
+  if (declared != null && declared > MAX_IMAGE_BYTES) {
+    return c.json({ error: 'image too large (max 5 MB)' }, 413);
+  }
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
-  await c.env.VIDEOS.put(`${key}.jpg`, body, { httpMetadata: { contentType } });
+  try {
+    await c.env.VIDEOS.put(`${key}.jpg`, enforceMaxBytes(body, MAX_IMAGE_BYTES), { httpMetadata: { contentType } });
+  } catch {
+    return c.json({ error: 'image too large (max 5 MB)' }, 413);
+  }
   return c.json({ key });
 });
 

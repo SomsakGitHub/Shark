@@ -2,25 +2,27 @@ import SwiftUI
 
 struct VideoActions: View {
     let video: Video
+    @Binding var liked: Bool
+    @Binding var likeCount: Int
     var onLikeChanged: ((Bool, Int) -> Void)? = nil
     var onCommentCountChanged: ((Int) -> Void)? = nil
 
-    @State private var liked: Bool
-    @State private var likeCount: Int
     @State private var commentCount: Int
     @State private var showingComments = false
     @EnvironmentObject private var auth: AuthManager
 
     init(
         video: Video,
+        liked: Binding<Bool>,
+        likeCount: Binding<Int>,
         onLikeChanged: ((Bool, Int) -> Void)? = nil,
         onCommentCountChanged: ((Int) -> Void)? = nil
     ) {
         self.video = video
+        _liked = liked
+        _likeCount = likeCount
         self.onLikeChanged = onLikeChanged
         self.onCommentCountChanged = onCommentCountChanged
-        _liked = State(initialValue: video.likedByMe)
-        _likeCount = State(initialValue: video.likeCount)
         _commentCount = State(initialValue: video.commentCount)
     }
 
@@ -71,18 +73,26 @@ struct VideoActions: View {
             auth.showSignInPrompt = true
             return
         }
+        let previousLiked = liked
+        let previousCount = likeCount
+        withAnimation(.spring(response: 0.4)) {
+            liked.toggle()
+            likeCount += liked ? 1 : -1
+        }
+        Haptics.impact(liked ? .medium : .light)
         do {
             let response: LikeResponse = try await APIClient.shared.request(
                 "/api/videos/\(video.id)/like",
                 method: "POST"
             )
-            withAnimation(.spring(response: 0.4)) {
-                liked = response.liked
-                likeCount = response.likeCount
-            }
-            Haptics.impact(response.liked ? .medium : .light)
+            liked = response.liked
+            likeCount = response.likeCount
             onLikeChanged?(response.liked, response.likeCount)
         } catch {
+            withAnimation(.spring(response: 0.4)) {
+                liked = previousLiked
+                likeCount = previousCount
+            }
             print("Like failed: \(error.localizedDescription)")
         }
     }

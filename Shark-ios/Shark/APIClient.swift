@@ -124,21 +124,20 @@ final class APIClient {
         return try decoder.decode(T.self, from: data)
     }
 
-    func uploadVideo(key: String, data: Data, progress: ((Double) -> Void)? = nil) async throws -> String {
+    func uploadVideo(key: String, fileURL: URL, progress: ((Double) -> Void)? = nil) async throws -> String {
         var request = URLRequest(url: SharkConfig.baseURL.appending(path: "/api/upload/\(key)"))
         request.httpMethod = "PUT"
         if let token = AuthStore.token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
-        request.httpBody = data
 
         let delegate = UploadProgressDelegate()
         delegate.onProgress = progress
         let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: .main)
         defer { session.finishTasksAndInvalidate() }
 
-        let (responseData, response) = try await session.upload(for: request, from: data)
+        let (responseData, response) = try await session.upload(for: request, fromFile: fileURL)
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
             throw APIError.invalidResponse

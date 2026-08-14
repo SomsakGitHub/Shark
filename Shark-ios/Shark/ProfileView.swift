@@ -129,6 +129,7 @@ struct ProfileView: View {
                     }
                 }
             }
+            .refreshable { await load() }
             .task { await load() }
             .onChange(of: userId) { _, _ in
                 Task { await load() }

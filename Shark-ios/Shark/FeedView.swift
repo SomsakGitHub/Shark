@@ -47,6 +47,7 @@ struct FeedView: View {
     @State private var currentKey: String?
     @State private var currentIndex = 0
     @State private var profileTarget: ProfileTarget?
+    @Environment(\.scenePhase) private var scenePhase
 
     init(mode: FeedMode, onGoToSearch: (() -> Void)? = nil) {
         self.mode = mode
@@ -113,6 +114,21 @@ struct FeedView: View {
                         activate(0)
                     }
                 }
+                .onAppear {
+                    if !feed.videos.isEmpty {
+                        activate(min(currentIndex, feed.videos.count - 1))
+                    }
+                }
+                .onDisappear {
+                    playerModel.pause()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase != .active {
+                        playerModel.pause()
+                    } else if !feed.videos.isEmpty {
+                        activate(min(currentIndex, feed.videos.count - 1))
+                    }
+                }
 
                 if mode == .following && feed.videos.isEmpty && !feed.isLoading {
                     followingEmptyState
@@ -174,9 +190,15 @@ struct FeedView: View {
         } else {
             playerModel.play()
         }
-        let nextIndex = index + 1
-        if feed.videos.indices.contains(nextIndex) {
-            playerModel.prepare(feed.videos[nextIndex])
+        preloadWindow(around: index)
+    }
+
+    private func preloadWindow(around index: Int) {
+        for offset in 1...2 {
+            let next = index + offset
+            if feed.videos.indices.contains(next) {
+                playerModel.cache(feed.videos[next])
+            }
         }
     }
 }
@@ -194,13 +216,36 @@ struct VideoCell: View {
 
     @State private var showHeart = false
     @State private var heartScale: CGFloat = 0.4
+    @State private var liked: Bool
+    @State private var likeCount: Int
     @EnvironmentObject private var auth: AuthManager
+
+    init(
+        video: Video,
+        playerModel: PlayerModel,
+        onUserTap: (() -> Void)? = nil,
+        onLikeChanged: ((Bool, Int) -> Void)? = nil,
+        onCommentCountChanged: ((Int) -> Void)? = nil
+    ) {
+        self.video = video
+        self.playerModel = playerModel
+        self.onUserTap = onUserTap
+        self.onLikeChanged = onLikeChanged
+        self.onCommentCountChanged = onCommentCountChanged
+        _liked = State(initialValue: video.likedByMe)
+        _likeCount = State(initialValue: video.likeCount)
+    }
 
     var body: some View {
         ZStack {
             Color.black
             PlayerLayerView(player: playerModel.player)
                 .clipped()
+
+            if playerModel.isLoading {
+                ProgressView()
+                    .tint(.white)
+            }
 
             VStack {
                 Spacer()
@@ -231,6 +276,8 @@ struct VideoCell: View {
 
                     VideoActions(
                         video: video,
+                        liked: $liked,
+                        likeCount: $likeCount,
                         onLikeChanged: onLikeChanged,
                         onCommentCountChanged: onCommentCountChanged
                     )
@@ -321,25 +368,34 @@ struct VideoCell: View {
             showHeart = true
             heartScale = 1
         }
-        likeVideo()
+        let previousLiked = liked
+        let previousCount = likeCount
+        withAnimation(.spring(response: 0.4)) {
+            liked.toggle()
+            likeCount += liked ? 1 : -1
+        }
+        Task {
+            do {
+                let response: LikeResponse = try await APIClient.shared.request(
+                    "/api/videos/\(video.id)/like",
+                    method: "POST"
+                )
+                liked = response.liked
+                likeCount = response.likeCount
+                onLikeChanged?(response.liked, response.likeCount)
+            } catch {
+                withAnimation(.spring(response: 0.4)) {
+                    liked = previousLiked
+                    likeCount = previousCount
+                }
+                print("Double-tap like failed: \(error.localizedDescription)")
+            }
+        }
         Task {
             try? await Task.sleep(for: .seconds(0.9))
             withAnimation(.easeOut(duration: 0.25)) {
                 showHeart = false
                 heartScale = 0.4
-            }
-        }
-    }
-
-    private func likeVideo() {
-        Task {
-            do {
-                let _: LikeResponse = try await APIClient.shared.request(
-                    "/api/videos/\(video.id)/like",
-                    method: "POST"
-                )
-            } catch {
-                print("Double-tap like failed: \(error.localizedDescription)")
             }
         }
     }

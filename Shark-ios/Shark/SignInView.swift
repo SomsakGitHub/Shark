@@ -98,5 +98,10 @@ struct AppTabView: View {
             .tabItem { Label("Profile", systemImage: "person.fill") }
             .tag(3)
         }
+        .onChange(of: selectedTab) { _, newValue in
+            if newValue != 0 {
+                NotificationCenter.default.post(name: .sharkPauseFeedPlayback, object: nil)
+            }
+        }
     }
 }

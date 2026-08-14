@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import UIKit
 
 @MainActor
 final class FeedModel: ObservableObject {
@@ -34,10 +35,23 @@ final class FeedModel: ObservableObject {
 
     func refresh() async {
         guard !isLoading else { return }
-        videos = []
-        nextCursor = nil
-        hasLoaded = false
-        await loadMore()
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let base = mode == .following ? "/api/videos/following" : "/api/videos"
+            let response: FeedResponse = try await APIClient.shared.request(base)
+            if response.videos.isEmpty {
+                videos = []
+                nextCursor = nil
+            } else {
+                videos = response.videos
+                nextCursor = response.nextCursor
+            }
+            hasLoaded = true
+            errorMessage = nil
+        } catch {
+            print("Feed refresh error: \(error.localizedDescription)")
+        }
     }
 
     func loadMore() async {
@@ -72,6 +86,10 @@ enum FeedMode: Hashable {
     case following
 }
 
+extension Notification.Name {
+    static let sharkPauseFeedPlayback = Notification.Name("sharkPauseFeedPlayback")
+}
+
 @MainActor
 final class PlayerModel: ObservableObject {
     let player = AVPlayer()
@@ -79,10 +97,15 @@ final class PlayerModel: ObservableObject {
         didSet { player.isMuted = isMuted }
     }
     @Published private(set) var isPlaying = false
+    @Published private(set) var isLoading = false
 
     private var preparedItem: AVPlayerItem?
     private var preparedKey: String?
     private var endObserver: NSObjectProtocol?
+    private var pauseObservers: [NSObjectProtocol] = []
+    private var timeControlObserver: NSKeyValueObservation?
+    private var itemCache: [String: AVPlayerItem] = [:]
+    private let maxCacheSize = 5
 
     init() {
         player.actionAtItemEnd = .none
@@ -97,12 +120,36 @@ final class PlayerModel: ObservableObject {
             self.player.seek(to: .zero)
             self.player.play()
         }
+        timeControlObserver = player.observe(\.timeControlStatus, options: [.new, .initial]) { [weak self] player, _ in
+            let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            Task { @MainActor [weak self] in
+                self?.isLoading = waiting
+            }
+        }
+        pauseObservers = [
+            NotificationCenter.default.addObserver(
+                forName: .sharkPauseFeedPlayback,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pause() }
+            },
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.willResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pause() }
+            },
+        ]
     }
 
     deinit {
+        timeControlObserver?.invalidate()
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
         }
+        pauseObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     func play() {
@@ -112,7 +159,9 @@ final class PlayerModel: ObservableObject {
 
     func play(_ video: Video) {
         let url = video.streamURL.absoluteString
-        if let preparedItem, preparedKey == url {
+        if let cached = itemCache.removeValue(forKey: url) {
+            player.replaceCurrentItem(with: cached)
+        } else if let preparedItem, preparedKey == url {
             player.replaceCurrentItem(with: preparedItem)
         } else {
             let item = AVPlayerItem(url: video.streamURL)
@@ -126,11 +175,14 @@ final class PlayerModel: ObservableObject {
         isPlaying = true
     }
 
-    func prepare(_ video: Video) {
+    func cache(_ video: Video) {
+        let url = video.streamURL.absoluteString
+        guard itemCache[url] == nil else { return }
         let asset = AVURLAsset(url: video.streamURL)
-        preparedKey = video.streamURL.absoluteString
-        preparedItem = AVPlayerItem(asset: asset)
-        preparedItem?.preferredForwardBufferDuration = 4
+        itemCache[url] = AVPlayerItem(asset: asset)
+        while itemCache.count > maxCacheSize, let key = itemCache.keys.first {
+            itemCache.removeValue(forKey: key)
+        }
         Task {
             _ = try? await asset.load(.isPlayable)
         }

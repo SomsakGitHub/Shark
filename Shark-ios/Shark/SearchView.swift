@@ -7,6 +7,7 @@ struct SearchView: View {
     @State private var videos: [Video] = []
     @State private var isLoading = false
     @State private var selectedVideo: Video?
+    @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -40,6 +41,9 @@ struct SearchView: View {
                 searchDebounced(newValue)
             }
             .task { await loadExplore() }
+            .onDisappear {
+                searchTask?.cancel()
+            }
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoPreviewSheet(video: video)
@@ -104,22 +108,30 @@ struct SearchView: View {
     }
 
     private func searchDebounced(_ text: String) {
+        searchTask?.cancel()
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             Task { await loadExplore() }
             return
         }
-        Task {
+        let task = Task {
             do {
+                try await Task.sleep(for: .milliseconds(300))
+                isLoading = true
+                defer { isLoading = false }
+                let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
                 let response: SearchResponse = try await APIClient.shared.request(
-                    "/api/search?q=\(trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed)"
+                    "/api/search?q=\(encoded)"
                 )
+                guard !Task.isCancelled else { return }
                 users = response.users
                 videos = response.videos
             } catch {
+                if error is CancellationError { return }
                 print("Search failed: \(error.localizedDescription)")
             }
         }
+        searchTask = task
     }
 
     private func loadExplore() async {
@@ -141,14 +153,7 @@ struct UserRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.85))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Text(String(user.username.prefix(1)).uppercased())
-                        .font(.headline.bold())
-                        .foregroundStyle(.white)
-                }
+            avatarView
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("@\(user.username)")
@@ -175,6 +180,38 @@ struct UserRow: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    @ViewBuilder
+    private var avatarView: some View {
+        if let path = user.avatarUrl, let url = URL.shark(path) {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                } else {
+                    letterAvatar
+                }
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(Circle())
+        } else {
+            letterAvatar
+        }
+    }
+
+    private var letterAvatar: some View {
+        Circle()
+            .fill(Color.accentColor.opacity(0.85))
+            .frame(width: 44, height: 44)
+            .overlay {
+                Text(String(user.username.prefix(1)).uppercased())
+                    .font(.headline.bold())
+                    .foregroundStyle(.white)
+            }
     }
 
     private func toggleFollow() {

@@ -10,10 +10,23 @@ struct UploadView: View {
         var id: String { rawValue }
     }
 
+    enum UploadError: LocalizedError {
+        case fileTooLarge(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .fileTooLarge(let max):
+                return "Video is too large (max \(max / 1_048_576) MB)"
+            }
+        }
+    }
+
+    private static let maxSourceBytes = 100 * 1_048_576
+
     @Environment(\.dismiss) private var dismiss
     @State private var source: UploadSource = .library
     @State private var pickerItem: PhotosPickerItem?
-    @State private var videoData: Data?
+    @State private var videoURL: URL?
     @State private var caption = ""
     @State private var isUploading = false
     @State private var uploadProgress = 0.0
@@ -57,8 +70,19 @@ struct UploadView: View {
             .onChange(of: pickerItem) { _, newItem in
                 guard let newItem else { return }
                 Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self) {
-                        videoData = data
+                    do {
+                        if let url = try await newItem.loadTransferable(type: URL.self) {
+                            videoURL = url
+                        } else if let data = try await newItem.loadTransferable(type: Data.self) {
+                            let url = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("picked-\(UUID().uuidString).mov")
+                            try data.write(to: url)
+                            videoURL = url
+                        } else {
+                            errorMessage = "Couldn't load the selected video"
+                        }
+                    } catch {
+                        errorMessage = "Couldn't load the selected video"
                     }
                 }
             }
@@ -72,7 +96,7 @@ struct UploadView: View {
         Section {
             PhotosPicker(selection: $pickerItem, matching: .videos) {
                 HStack {
-                    if videoData == nil {
+                    if videoURL == nil {
                         Image(systemName: "video.badge.plus")
                         Text("Choose a video")
                     } else {
@@ -83,9 +107,9 @@ struct UploadView: View {
                     Spacer()
                 }
             }
-            if videoData != nil {
+            if videoURL != nil {
                 Button("Remove", role: .destructive) {
-                    videoData = nil
+                    videoURL = nil
                     pickerItem = nil
                 }
             }
@@ -95,16 +119,12 @@ struct UploadView: View {
     private var cameraSection: some View {
         Section {
             CameraRecorderView { url in
-                do {
-                    videoData = try Data(contentsOf: url)
-                    pickerItem = nil
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
+                videoURL = url
+                pickerItem = nil
             }
-            if videoData != nil {
+            if videoURL != nil {
                 Button("Remove", role: .destructive) {
-                    videoData = nil
+                    videoURL = nil
                 }
             }
         }
@@ -129,26 +149,26 @@ struct UploadView: View {
                 Spacer()
             }
         }
-        .disabled(videoData == nil || isUploading)
+        .disabled(videoURL == nil || isUploading)
     }
 
     private func upload() async {
-        guard let videoData else { return }
+        guard let sourceURL = videoURL else { return }
         isUploading = true
         errorMessage = nil
         uploadProgress = 0
         defer { isUploading = false }
 
         do {
+            let fileURL = try await prepareForUpload(sourceURL)
             let localKey = "\(UUID().uuidString).mp4"
-            let progressBinding = $uploadProgress
             let storageKey = try await APIClient.shared.uploadVideo(
                 key: localKey,
-                data: videoData
+                fileURL: fileURL
             ) { fraction in
-                progressBinding.wrappedValue = fraction
+                uploadProgress = fraction
             }
-            if let thumbnail = makeThumbnail(data: videoData) {
+            if let thumbnail = await makeThumbnail(fileURL: fileURL) {
                 try? await APIClient.shared.uploadThumbnail(key: storageKey, data: thumbnail)
             }
             let payload = try JSONEncoder.shark().encode(VideoCreateRequest(key: storageKey, caption: caption))
@@ -163,22 +183,51 @@ struct UploadView: View {
         }
     }
 
-    private func makeThumbnail(data: Data) -> Data? {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
-        do {
-            try data.write(to: url)
-            defer { try? FileManager.default.removeItem(at: url) }
+    private func prepareForUpload(_ source: URL) async throws -> URL {
+        let size = (try? FileManager.default.attributesOfItem(atPath: source.path)[.size] as? Int) ?? 0
+        guard size > 0 else { throw UploadError.fileTooLarge(Self.maxSourceBytes) }
+        guard size <= Self.maxSourceBytes else { throw UploadError.fileTooLarge(Self.maxSourceBytes) }
 
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 360, height: 640)
+        if let compressed = await transcodeTo720p(source) {
+            return compressed
+        }
+        return source
+    }
 
-            let image = try generator.copyCGImage(at: .zero, actualTime: nil)
-            return UIImage(cgImage: image).jpegData(compressionQuality: 0.7)
-        } catch {
-            print("Thumbnail generation failed: \(error.localizedDescription)")
+    private func transcodeTo720p(_ source: URL) async -> URL? {
+        let asset = AVURLAsset(url: source)
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1280x720) else {
             return nil
         }
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("compressed-\(UUID().uuidString).mp4")
+        export.outputURL = output
+        export.outputFileType = .mp4
+        export.shouldOptimizeForNetworkUse = true
+        do {
+            try await export.export(to: output, as: .mp4)
+        } catch {
+            print("Transcode failed: \(error.localizedDescription)")
+            return nil
+        }
+        guard FileManager.default.fileExists(atPath: output.path) else { return nil }
+        return output
+    }
+
+    private func makeThumbnail(fileURL: URL) async -> Data? {
+        let asset = AVURLAsset(url: fileURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 360, height: 640)
+        let cgImage: CGImage? = await withCheckedContinuation { continuation in
+            generator.generateCGImageAsynchronously(for: .zero) { image, _, _ in
+                continuation.resume(returning: image)
+            }
+        }
+        guard let cgImage else {
+            print("Thumbnail generation failed")
+            return nil
+        }
+        return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7)
     }
 }
