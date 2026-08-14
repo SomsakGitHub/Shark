@@ -55,8 +55,7 @@ final class FeedModel: ObservableObject {
     }
 
     func loadMore() async {
-        guard !isLoading else { return }
-        if nextCursor == "" { return }
+        guard !isLoading, !hasLoaded || nextCursor != nil else { return }
         isLoading = true
         defer { isLoading = false }
 
@@ -76,7 +75,9 @@ final class FeedModel: ObservableObject {
             errorMessage = nil
         } catch {
             print("Feed load error: \(error.localizedDescription)")
-            errorMessage = error.localizedDescription
+            if videos.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

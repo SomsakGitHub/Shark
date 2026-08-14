@@ -203,36 +203,74 @@ struct UserRow: View {
 struct VideoPreviewSheet: View {
     let video: Video
     @Environment(\.dismiss) private var dismiss
+    @State private var isMuted = false
+    @State private var isLoading = false
+    @State private var loadingObserver: NSKeyValueObservation?
+
+    private let player: AVQueuePlayer = AVQueuePlayer()
+    private let looper: AVPlayerLooper
+
+    init(video: Video) {
+        self.video = video
+        let item = AVPlayerItem(url: video.streamURL)
+        item.preferredForwardBufferDuration = 4
+        looper = AVPlayerLooper(player: player, templateItem: item)
+    }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             Color.black.ignoresSafeArea()
             VideoPlayer(player: player)
                 .ignoresSafeArea()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(10)
-                    .background(.black.opacity(0.4), in: Circle())
+
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
             }
-            .padding(.top, 8)
-            .padding(.leading, 12)
+
+            VStack {
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.black.opacity(0.4), in: Circle())
+                    }
+                    Spacer()
+                    Button {
+                        isMuted.toggle()
+                        player.isMuted = isMuted
+                    } label: {
+                        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.black.opacity(0.4), in: Circle())
+                    }
+                }
+                .padding(.top, 8)
+                .padding(.horizontal, 12)
+                Spacer()
+            }
         }
         .onAppear {
+            if loadingObserver == nil {
+                loadingObserver = player.observe(\.timeControlStatus, options: [.new, .initial]) { player, _ in
+                    let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                    Task { @MainActor in
+                        isLoading = waiting
+                    }
+                }
+            }
             player.play()
         }
         .onDisappear {
             player.pause()
+            loadingObserver?.invalidate()
+            loadingObserver = nil
         }
-    }
-
-    private let player: AVPlayer = AVPlayer()
-
-    init(video: Video) {
-        self.video = video
-        player.replaceCurrentItem(with: AVPlayerItem(url: video.streamURL))
     }
 }

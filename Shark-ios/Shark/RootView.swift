@@ -8,7 +8,6 @@ struct RootView: View {
         AppTabView()
             .preferredColorScheme(.dark)
             .onOpenURL { url in
-                guard auth.isSignedIn else { return }
                 deepLink.handle(url)
             }
             .fullScreenCover(item: $deepLink.pendingVideo) { video in
