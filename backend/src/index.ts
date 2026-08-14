@@ -248,6 +248,22 @@ const mapUserSummary = (r: Record<string, unknown>) => ({
   followedByMe: Boolean(r.followed_by_me),
 });
 
+const fetchComments = async (db: ReturnType<typeof getDb>, videoId: string) => {
+  const rows = await db`
+    select cm.id, cm.text, cm.created_at, u.id as user_id, u.username, u.avatar_url
+    from comments cm
+    join users u on u.id = cm.user_id
+    where cm.video_id = ${videoId}
+    order by cm.created_at asc
+  ` as unknown as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r.id,
+    text: r.text,
+    createdAt: r.created_at,
+    user: { id: r.user_id, username: r.username, avatar_url: r.avatar_url },
+  }));
+};
+
 app.get('/api/search', optionalAuth, async (c) => {
   const me = meOf(c);
   const q = (c.req.query('q') ?? '').trim();
@@ -452,24 +468,12 @@ app.post('/api/videos/:id/like', requireAuth, async (c) => {
 
 app.get('/api/videos/:id/comments', async (c) => {
   const videoId = c.req.param('id');
-  const db = getDb(c.env);
-  const rows = await db`
-    select cm.id, cm.text, cm.created_at, u.id as user_id, u.username, u.avatar_url
-    from comments cm
-    join users u on u.id = cm.user_id
-    where cm.video_id = ${videoId}
-    order by cm.created_at asc
-  ` as unknown as Record<string, unknown>[];
-  const comments = rows.map((r) => ({
-    id: r.id,
-    text: r.text,
-    createdAt: r.created_at,
-    user: { id: r.user_id, username: r.username, avatar_url: r.avatar_url },
-  }));
+  const comments = await fetchComments(getDb(c.env), videoId);
   return c.json({ comments });
 });
 
-app.post('/api/videos/:id/comments', requireAuth, async (c) => {  const me = c.get('user');
+app.post('/api/videos/:id/comments', requireAuth, async (c) => {
+  const me = c.get('user');
   const videoId = c.req.param('id');
   const body = await c.req.json<{ text?: string }>();
   const text = (body.text ?? '').trim();
@@ -479,19 +483,7 @@ app.post('/api/videos/:id/comments', requireAuth, async (c) => {  const me = c.g
     insert into comments (video_id, user_id, text)
     values (${videoId}, ${me.id}, ${text})
   `;
-  const all = await db`
-    select cm.id, cm.text, cm.created_at, u.id as user_id, u.username, u.avatar_url
-    from comments cm
-    join users u on u.id = cm.user_id
-    where cm.video_id = ${videoId}
-    order by cm.created_at asc
-  ` as unknown as Record<string, unknown>[];
-  const comments = all.map((r) => ({
-    id: r.id,
-    text: r.text,
-    createdAt: r.created_at,
-    user: { id: r.user_id, username: r.username, avatar_url: r.avatar_url },
-  }));
+  const comments = await fetchComments(db, videoId);
   return c.json({ comments }, 201);
 });
 
@@ -506,19 +498,7 @@ app.delete('/api/videos/:id/comments/:commentId', requireAuth, async (c) => {
   if (rows.length === 0) return c.notFound();
   if (rows[0].user_id !== me) return c.json({ error: 'not your comment' }, 403);
   await db`delete from comments where id = ${commentId}`;
-  const all = await db`
-    select cm.id, cm.text, cm.created_at, u.id as user_id, u.username, u.avatar_url
-    from comments cm
-    join users u on u.id = cm.user_id
-    where cm.video_id = ${videoId}
-    order by cm.created_at asc
-  ` as unknown as Record<string, unknown>[];
-  const comments = all.map((r) => ({
-    id: r.id,
-    text: r.text,
-    createdAt: r.created_at,
-    user: { id: r.user_id, username: r.username, avatar_url: r.avatar_url },
-  }));
+  const comments = await fetchComments(db, videoId);
   return c.json({ comments });
 });
 

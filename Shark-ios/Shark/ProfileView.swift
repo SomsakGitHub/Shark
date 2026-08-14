@@ -29,7 +29,7 @@ struct ProfileView: View {
             ScrollView {
                 if let user {
                     VStack(spacing: 16) {
-                        avatarView(for: user)
+                        AvatarView(url: user.avatarUrl, username: user.username, size: 96)
 
                         Text("@\(user.username)")
                             .font(.title3.bold())
@@ -159,37 +159,6 @@ struct ProfileView: View {
                 Text("You'll need to sign in again to continue.")
             }
         }
-    }
-
-    @ViewBuilder
-    private func avatarView(for user: APIUser) -> some View {
-        if let avatarPath = user.avatarUrl, let url = URL.shark(avatarPath) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 96, height: 96)
-                        .clipShape(Circle())
-                default:
-                    letterAvatar(for: user)
-                }
-            }
-        } else {
-            letterAvatar(for: user)
-        }
-    }
-
-    private func letterAvatar(for user: APIUser) -> some View {
-        Circle()
-            .fill(Color.accentColor.opacity(0.85))
-            .frame(width: 96, height: 96)
-            .overlay {
-                Text(String(user.username.prefix(1)).uppercased())
-                    .font(.system(size: 40, weight: .bold))
-                    .foregroundStyle(.white)
-            }
     }
 
     private var editProfileButton: some View {

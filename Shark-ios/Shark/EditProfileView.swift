@@ -84,33 +84,9 @@ struct EditProfileView: View {
                 .scaledToFill()
                 .frame(width: 80, height: 80)
                 .clipShape(Circle())
-        } else if let path = user?.avatarUrl, let url = URL.shark(path) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 80, height: 80)
-                        .clipShape(Circle())
-                default:
-                    letterPlaceholder
-                }
-            }
         } else {
-            letterPlaceholder
+            AvatarView(url: user?.avatarUrl, username: username, size: 80)
         }
-    }
-
-    private var letterPlaceholder: some View {
-        Circle()
-            .fill(Color.accentColor.opacity(0.85))
-            .frame(width: 80, height: 80)
-            .overlay {
-                Text(String(username.prefix(1)).uppercased())
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(.white)
-            }
     }
 
     private func save() async {

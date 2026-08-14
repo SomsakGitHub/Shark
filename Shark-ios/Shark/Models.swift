@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UIKit
 
 enum Haptics {
@@ -8,6 +9,42 @@ enum Haptics {
 
     static func success() {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+struct AvatarView: View {
+    let url: String?
+    let username: String
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let path = url, let avatarURL = URL.shark(path) {
+                AsyncImage(url: avatarURL) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        letter
+                    }
+                }
+            } else {
+                letter
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+
+    private var letter: some View {
+        Circle()
+            .fill(Color.accentColor.opacity(0.85))
+            .overlay {
+                Text(String(username.prefix(1)).uppercased())
+                    .font(.system(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(.white)
+            }
     }
 }
 

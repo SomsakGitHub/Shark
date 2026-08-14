@@ -153,7 +153,7 @@ struct UserRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            avatarView
+            AvatarView(url: user.avatarUrl, username: user.username, size: 44)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("@\(user.username)")
@@ -180,38 +180,6 @@ struct UserRow: View {
             }
             .buttonStyle(.plain)
         }
-    }
-
-    @ViewBuilder
-    private var avatarView: some View {
-        if let path = user.avatarUrl, let url = URL.shark(path) {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 44, height: 44)
-                        .clipShape(Circle())
-                } else {
-                    letterAvatar
-                }
-            }
-            .frame(width: 44, height: 44)
-            .clipShape(Circle())
-        } else {
-            letterAvatar
-        }
-    }
-
-    private var letterAvatar: some View {
-        Circle()
-            .fill(Color.accentColor.opacity(0.85))
-            .frame(width: 44, height: 44)
-            .overlay {
-                Text(String(user.username.prefix(1)).uppercased())
-                    .font(.headline.bold())
-                    .foregroundStyle(.white)
-            }
     }
 
     private func toggleFollow() {

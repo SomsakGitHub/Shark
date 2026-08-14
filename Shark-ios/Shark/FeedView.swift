@@ -252,7 +252,7 @@ struct VideoCell: View {
                 HStack(alignment: .bottom, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
-                            avatar(video.user)
+                            AvatarView(url: video.user.avatarUrl, username: video.user.username, size: 30)
                             Button {
                                 onUserTap?()
                             } label: {
@@ -316,36 +316,6 @@ struct VideoCell: View {
             playerModel.togglePlay()
         }
         .ignoresSafeArea()
-    }
-
-    @ViewBuilder
-    private func avatar(_ user: Video.UserRef) -> some View {
-        if let path = user.avatarUrl, let url = URL.shark(path) {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    letterAvatar(user)
-                }
-            }
-            .frame(width: 30, height: 30)
-            .clipShape(Circle())
-        } else {
-            letterAvatar(user)
-        }
-    }
-
-    private func letterAvatar(_ user: Video.UserRef) -> some View {
-        Circle()
-            .fill(.white.opacity(0.25))
-            .frame(width: 30, height: 30)
-            .overlay {
-                Text(String(user.username.prefix(1)).uppercased())
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-            }
     }
 
     private var muteButton: some View {
