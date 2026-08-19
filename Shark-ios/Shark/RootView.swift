@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var auth: AuthManager
     @StateObject private var deepLink = DeepLinkHandler()
+    @State private var showSplash = true
 
     var body: some View {
         AppTabView()
@@ -15,6 +16,14 @@ struct RootView: View {
             }
             .sheet(isPresented: $auth.showSignInPrompt) {
                 SignInView()
+            }
+            .overlay {
+                if showSplash {
+                    SplashView {
+                        showSplash = false
+                    }
+                    .transition(.opacity)
+                }
             }
     }
 }
