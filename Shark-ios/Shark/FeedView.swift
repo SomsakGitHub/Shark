@@ -1,6 +1,13 @@
 import AVKit
 import SwiftUI
 
+struct CellDistanceKey: PreferenceKey {
+    static var defaultValue: [Int: CGFloat] = [:]
+    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 struct PlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
 
@@ -57,37 +64,34 @@ struct FeedView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let centerY = proxy.size.height / 2
             ZStack {
                 Color.black
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
                         ForEach(feed.videos.indices, id: \.self) { index in
                             GeometryReader { cell in
-                                let midY = cell.frame(in: .global).midY
-                                let centerY = proxy.size.height / 2
-                                let isActive = abs(midY - centerY) < centerY
-
-                                VideoCell(video: feed.videos[index], playerModel: playerModel) {
-                                    profileTarget = ProfileTarget(id: feed.videos[index].user.id)
-                                } onLikeChanged: { liked, count in
-                                    feed.applyLike(
-                                        videoID: feed.videos[index].id,
-                                        liked: liked,
-                                        likeCount: count
+                                Color.clear
+                                    .preference(
+                                        key: CellDistanceKey.self,
+                                        value: [index: abs(cell.frame(in: .global).midY - centerY)]
                                     )
-                                } onCommentCountChanged: { count in
-                                    feed.applyCommentCount(
-                                        videoID: feed.videos[index].id,
-                                        count: count
-                                    )
-                                }
-                                .onChange(of: isActive) { _, active in
-                                    if active {
-                                        activate(index)
-                                    } else {
-                                        playerModel.pause()
+                                    .overlay {
+                                        VideoCell(video: feed.videos[index], playerModel: playerModel) {
+                                            profileTarget = ProfileTarget(id: feed.videos[index].user.id)
+                                        } onLikeChanged: { liked, count in
+                                            feed.applyLike(
+                                                videoID: feed.videos[index].id,
+                                                liked: liked,
+                                                likeCount: count
+                                            )
+                                        } onCommentCountChanged: { count in
+                                            feed.applyCommentCount(
+                                                videoID: feed.videos[index].id,
+                                                count: count
+                                            )
+                                        }
                                     }
-                                }
                             }
                             .frame(height: proxy.size.height)
                             .onAppear {
@@ -101,6 +105,14 @@ struct FeedView: View {
                 }
                 .scrollTargetBehavior(.paging)
                 .ignoresSafeArea()
+                .onPreferenceChange(CellDistanceKey.self) { distances in
+                    guard !feed.videos.isEmpty else { return }
+                    if let closest = distances.min(by: { $0.value < $1.value }) {
+                        if closest.key != currentIndex || currentKey == nil {
+                            activate(closest.key)
+                        }
+                    }
+                }
                 .refreshable {
                     await feed.refresh()
                     if !feed.videos.isEmpty {
@@ -194,7 +206,7 @@ struct FeedView: View {
     }
 
     private func preloadWindow(around index: Int) {
-        for offset in 1...2 {
+        for offset in 1...3 {
             let next = index + offset
             if feed.videos.indices.contains(next) {
                 playerModel.cache(feed.videos[next])

@@ -100,8 +100,6 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
 
-    private var preparedItem: AVPlayerItem?
-    private var preparedKey: String?
     private var endObserver: NSObjectProtocol?
     private var pauseObservers: [NSObjectProtocol] = []
     private var timeControlObserver: NSKeyValueObservation?
@@ -109,6 +107,7 @@ final class PlayerModel: ObservableObject {
     private let maxCacheSize = 5
 
     init() {
+        player.automaticallyWaitsToMinimizeStalling = true
         player.actionAtItemEnd = .none
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
@@ -118,8 +117,9 @@ final class PlayerModel: ObservableObject {
             guard let self,
                   let item = note.object as? AVPlayerItem,
                   item === self.player.currentItem else { return }
-            self.player.seek(to: .zero)
-            self.player.play()
+            self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                self?.player.play()
+            }
         }
         timeControlObserver = player.observe(\.timeControlStatus, options: [.new, .initial]) { [weak self] player, _ in
             let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
@@ -160,17 +160,16 @@ final class PlayerModel: ObservableObject {
 
     func play(_ video: Video) {
         let url = video.streamURL.absoluteString
+        let newItem: AVPlayerItem
         if let cached = itemCache.removeValue(forKey: url) {
-            player.replaceCurrentItem(with: cached)
-        } else if let preparedItem, preparedKey == url {
-            player.replaceCurrentItem(with: preparedItem)
+            cached.preferredForwardBufferDuration = 15
+            newItem = cached
         } else {
             let item = AVPlayerItem(url: video.streamURL)
-            item.preferredForwardBufferDuration = 4
-            player.replaceCurrentItem(with: item)
+            item.preferredForwardBufferDuration = 15
+            newItem = item
         }
-        preparedItem = nil
-        preparedKey = nil
+        player.replaceCurrentItem(with: newItem)
         player.isMuted = isMuted
         player.play()
         isPlaying = true
@@ -180,7 +179,9 @@ final class PlayerModel: ObservableObject {
         let url = video.streamURL.absoluteString
         guard itemCache[url] == nil else { return }
         let asset = AVURLAsset(url: video.streamURL)
-        itemCache[url] = AVPlayerItem(asset: asset)
+        let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = 15
+        itemCache[url] = item
         while itemCache.count > maxCacheSize, let key = itemCache.keys.first {
             itemCache.removeValue(forKey: key)
         }
