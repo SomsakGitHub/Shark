@@ -93,40 +93,17 @@ extension Notification.Name {
 
 @MainActor
 final class PlayerModel: ObservableObject {
-    let player = AVPlayer()
-    @Published var isMuted = false {
-        didSet { player.isMuted = isMuted }
-    }
+    @Published var isMuted = false
     @Published private(set) var isPlaying = false
     @Published private(set) var isLoading = false
 
-    private var endObserver: NSObjectProtocol?
+    private var players: [String: AVPlayer] = [:]
+    private var endObservers: [String: NSObjectProtocol] = [:]
+    private var statusObservers: [String: NSKeyValueObservation] = [:]
+    private(set) var activeKey: String?
     private var pauseObservers: [NSObjectProtocol] = []
-    private var timeControlObserver: NSKeyValueObservation?
-    private var itemCache: [String: AVPlayerItem] = [:]
-    private let maxCacheSize = 5
 
     init() {
-        player.automaticallyWaitsToMinimizeStalling = true
-        player.actionAtItemEnd = .none
-        endObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let self,
-                  let item = note.object as? AVPlayerItem,
-                  item === self.player.currentItem else { return }
-            self.player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                self?.player.play()
-            }
-        }
-        timeControlObserver = player.observe(\.timeControlStatus, options: [.new, .initial]) { [weak self] player, _ in
-            let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-            Task { @MainActor [weak self] in
-                self?.isLoading = waiting
-            }
-        }
         pauseObservers = [
             NotificationCenter.default.addObserver(
                 forName: .sharkPauseFeedPlayback,
@@ -146,64 +123,145 @@ final class PlayerModel: ObservableObject {
     }
 
     deinit {
-        timeControlObserver?.invalidate()
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-        }
         pauseObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
-    func play() {
-        player.play()
-        isPlaying = true
-    }
+    func activate(video: Video, videos: [Video], index: Int) {
+        let key = video.streamURL.absoluteString
 
-    func play(_ video: Video) {
-        let url = video.streamURL.absoluteString
-        let newItem: AVPlayerItem
-        if let cached = itemCache.removeValue(forKey: url) {
-            cached.preferredForwardBufferDuration = 15
-            newItem = cached
-        } else {
-            let item = AVPlayerItem(url: video.streamURL)
-            item.preferredForwardBufferDuration = 15
-            newItem = item
+        if activeKey == key {
+            players[key]?.play()
+            isPlaying = true
+            return
         }
-        player.replaceCurrentItem(with: newItem)
+
+        if let currentKey = activeKey {
+            players[currentKey]?.pause()
+        }
+
+        let player = getOrCreatePlayer(for: video)
+        activeKey = key
         player.isMuted = isMuted
-        player.play()
-        isPlaying = true
+        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard self?.activeKey == key else { return }
+                self?.players[key]?.play()
+                self?.isPlaying = true
+            }
+        }
+
+        for offset in 1...2 {
+            let nextIndex = index + offset
+            if videos.indices.contains(nextIndex) {
+                _ = getOrCreatePlayer(for: videos[nextIndex])
+            }
+        }
+
+        var keepKeys = Set<String>()
+        keepKeys.insert(key)
+        if let prev = videoForPlayer(at: index - 1, in: videos) {
+            keepKeys.insert(prev.streamURL.absoluteString)
+        }
+        for offset in 1...2 {
+            let nextIndex = index + offset
+            if videos.indices.contains(nextIndex) {
+                keepKeys.insert(videos[nextIndex].streamURL.absoluteString)
+            }
+        }
+        for playerKey in players.keys where !keepKeys.contains(playerKey) {
+            removePlayer(for: playerKey)
+        }
     }
 
-    func cache(_ video: Video) {
-        let url = video.streamURL.absoluteString
-        guard itemCache[url] == nil else { return }
-        let asset = AVURLAsset(url: video.streamURL)
-        let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 15
-        itemCache[url] = item
-        while itemCache.count > maxCacheSize, let key = itemCache.keys.first {
-            itemCache.removeValue(forKey: key)
+    func player(for video: Video) -> AVPlayer? {
+        players[video.streamURL.absoluteString]
+    }
+
+    private func videoForPlayer(at index: Int, in videos: [Video]) -> Video? {
+        videos.indices.contains(index) ? videos[index] : nil
+    }
+
+    private func getOrCreatePlayer(for video: Video) -> AVPlayer {
+        let key = video.streamURL.absoluteString
+        if let existing = players[key] {
+            return existing
         }
-        Task {
-            _ = try? await asset.load(.isPlayable)
+        let player = AVPlayer(url: video.streamURL)
+        player.automaticallyWaitsToMinimizeStalling = true
+        player.actionAtItemEnd = .none
+        player.currentItem?.preferredForwardBufferDuration = 15
+
+        let endObs = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak player] _ in
+            player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                player?.play()
+            }
         }
+        endObservers[key] = endObs
+
+        let statusObs = player.observe(\.timeControlStatus, options: [.new, .initial]) { [weak self] player, _ in
+            let isWaiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            Task { @MainActor [weak self] in
+                guard self?.activeKey == key else { return }
+                self?.isLoading = isWaiting
+            }
+        }
+        statusObservers[key] = statusObs
+
+        players[key] = player
+        return player
     }
 
     func pause() {
-        player.pause()
+        if let key = activeKey {
+            players[key]?.pause()
+        }
         isPlaying = false
     }
 
     func togglePlay() {
+        guard let key = activeKey, let player = players[key] else { return }
         if isPlaying {
-            pause()
+            player.pause()
+            isPlaying = false
         } else {
-            play()
+            player.play()
+            isPlaying = true
         }
     }
 
     func toggleMute() {
         isMuted.toggle()
+        if let key = activeKey {
+            players[key]?.isMuted = isMuted
+        }
+    }
+
+    private func removePlayer(for key: String) {
+        guard key != activeKey else { return }
+        players[key]?.pause()
+        players[key]?.replaceCurrentItem(with: nil)
+        if let observer = endObservers[key] {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        statusObservers[key]?.invalidate()
+        endObservers[key] = nil
+        statusObservers[key] = nil
+        players[key] = nil
+    }
+
+    func removeAll() {
+        players.keys.forEach { removePlayer(for: $0) }
+        if let activeKey {
+            players[activeKey]?.pause()
+            players[activeKey]?.replaceCurrentItem(with: nil)
+            players[activeKey] = nil
+        }
+        self.activeKey = nil
+        isPlaying = false
+        isLoading = false
     }
 }

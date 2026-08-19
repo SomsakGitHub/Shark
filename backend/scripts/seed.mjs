@@ -25,6 +25,13 @@ const DEMO_USERS = [
 ];
 
 const VIDEOS = [
+  { file: 'cat_funny.mp4', thumb: 'cat_funny.jpg', caption: 'แมวตลกทำหน้าไม่เข้ากับ Situation 555 #cat #funny #แมวตลก' },
+  { file: 'cat_3d.mp4', thumb: 'cat_3d.jpg', caption: 'น้องแมว 3D สุดน่ารัก ขยับได้เหมือนจริงมาก #cat3d #cute #แมว' },
+  { file: 'cat_sleepy.mp4', thumb: 'cat_sleepy.jpg', caption: 'น้องแมวหลับปุ๋ย น่ารักจนอยากงีบตาม #sleepycat #relax #แมวหลับ' },
+  { file: 'dog_funny.mp4', thumb: 'dog_funny.jpg', caption: 'สุนัขตลกทำท่าทางฮาๆ ดูแล้วหัวเราะแน่นอน #dog #funny #หมาตลก' },
+  { file: 'dog_brown.mp4', thumb: 'dog_brown.jpg', caption: 'น้องหมาสีน้ำตาลสุด Cute มองกล้องแบบตะลึง #dog #cute #หมา' },
+  { file: 'puppy_beach.mp4', thumb: 'puppy_beach.jpg', caption: 'ลูกหมาวิ่งเล่นที่ชายหาด สนุกสุดเหวี่ยง! #puppy #beach #ลูกหมา' },
+  { file: 'puppy_play.mp4', thumb: 'puppy_play.jpg', caption: 'ลูกหมาเล่นของเล่น ดูแล้วใจละลาย #puppy #playful #ลูกหมาเล่น' },
   { file: 'flower.mp4', thumb: 'flower.jpg', caption: 'ชมความงามของธรรมชาติระหว่างทางขึ้นเขา #flower #nature' },
   { file: 'bbb10s.mp4', thumb: 'bbb10s.jpg', caption: 'บิ๊กบั๊กบันนี่กลับมาแล้ว #animation #fun' },
 ];
@@ -113,32 +120,50 @@ async function seed() {
     users.push({ ...user, token: await makeToken(user.id, user.username) });
   }
 
-  const [u1, u2, u3] = users;
+  console.log('uploading videos...');
   const videos = [];
-  videos.push(await uploadVideo(u1.token, u1, 'flower.mp4'));
-  videos.push(await uploadVideo(u2.token, u2, 'bbb10s.mp4'));
+  for (let i = 0; i < VIDEOS.length; i++) {
+    const v = VIDEOS[i];
+    const user = users[i % users.length];
+    videos.push(await uploadVideo(user.token, user, v.file));
+  }
 
   console.log('seeding interactions...');
-  const [v1, v2] = videos;
-  await db`insert into likes (user_id, video_id) values (${u2.id}, ${v1.id})`;
-  await db`insert into likes (user_id, video_id) values (${u3.id}, ${v1.id})`;
-  await db`insert into likes (user_id, video_id) values (${u1.id}, ${v2.id})`;
-  await db`insert into likes (user_id, video_id) values (${u3.id}, ${v2.id})`;
+  const [u1, u2, u3] = users;
 
-  await db`
-    insert into comments (video_id, user_id, text) values
-    (${v1.id}, ${u2.id}, 'สวยมากอยากไปบ้าง'),
-    (${v1.id}, ${u3.id}, 'เก็บไว้เป็นเส้นทางวิ่งดีๆ นี่แหละ'),
-    (${v2.id}, ${u1.id}, 'น่ารักมาก 555'),
-    (${v2.id}, ${u3.id}, 'เอาไปอัดวิดีโอออนไลน์อีกแล้ว')
-  `;
+  // each user likes a few random videos
+  for (const user of users) {
+    const randomVideos = videos
+      .sort(() => Math.random() - 0.5)
+      .slice(0, Math.min(3, videos.length));
+    for (const v of randomVideos) {
+      await db`insert into likes (user_id, video_id) values (${user.id}, ${v.id}) on conflict do nothing`;
+    }
+  }
 
-  await db`
-    insert into follows (follower_id, followee_id) values
-    (${u2.id}, ${u1.id}),
-    (${u3.id}, ${u1.id}),
-    (${u1.id}, ${u2.id})
-  `;
+  // a few comments
+  const commentTexts = [
+    'ฮาาก 555',
+    'น่ารักมากกก',
+    'ดูแล้วใจละลาย',
+    'ขำหนักมาก',
+    'น้องๆ โคตรน่ารัก',
+    'ต้องแชร์ต่อเลย',
+    'ดูไม่เบื่อเลย',
+    'SO CUTE!!!',
+    '55555555',
+    'อยากได้บ้างอ่ะ',
+  ];
+  for (const v of videos.slice(0, 5)) {
+    const user = users[Math.floor(Math.random() * users.length)];
+    const text = commentTexts[Math.floor(Math.random() * commentTexts.length)];
+    await db`insert into comments (video_id, user_id, text) values (${v.id}, ${user.id}, ${text})`;
+  }
+
+  // follow relationships
+  await db`insert into follows (follower_id, followee_id) values (${u2.id}, ${u1.id}) on conflict do nothing`;
+  await db`insert into follows (follower_id, followee_id) values (${u3.id}, ${u1.id}) on conflict do nothing`;
+  await db`insert into follows (follower_id, followee_id) values (${u1.id}, ${u2.id}) on conflict do nothing`;
 
   console.log('\nDone. Users:');
   for (const u of users) console.log(`  @${u.username} (${u.id})`);

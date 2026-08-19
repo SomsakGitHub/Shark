@@ -1,13 +1,6 @@
 import AVKit
 import SwiftUI
 
-struct CellDistanceKey: PreferenceKey {
-    static var defaultValue: [Int: CGFloat] = [:]
-    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
 struct PlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
 
@@ -51,8 +44,7 @@ struct FeedView: View {
 
     @StateObject private var feed: FeedModel
     @StateObject private var playerModel = PlayerModel()
-    @State private var currentKey: String?
-    @State private var currentIndex = 0
+    @State private var currentIndex: Int?
     @State private var profileTarget: ProfileTarget?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -64,35 +56,25 @@ struct FeedView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let centerY = proxy.size.height / 2
             ZStack {
                 Color.black
                 ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
                         ForEach(feed.videos.indices, id: \.self) { index in
-                            GeometryReader { cell in
-                                Color.clear
-                                    .preference(
-                                        key: CellDistanceKey.self,
-                                        value: [index: abs(cell.frame(in: .global).midY - centerY)]
-                                    )
-                                    .overlay {
-                                        VideoCell(video: feed.videos[index], playerModel: playerModel) {
-                                            profileTarget = ProfileTarget(id: feed.videos[index].user.id)
-                                        } onLikeChanged: { liked, count in
-                                            feed.applyLike(
-                                                videoID: feed.videos[index].id,
-                                                liked: liked,
-                                                likeCount: count
-                                            )
-                                        } onCommentCountChanged: { count in
-                                            feed.applyCommentCount(
-                                                videoID: feed.videos[index].id,
-                                                count: count
-                                            )
-                                        }
-                                    }
-                            }
+                            VideoCell(
+                                video: feed.videos[index],
+                                playerModel: playerModel,
+                                isActive: index == currentIndex,
+                                onUserTap: {
+                                    profileTarget = ProfileTarget(id: feed.videos[index].user.id)
+                                },
+                                onLikeChanged: { liked, count in
+                                    feed.applyLike(videoID: feed.videos[index].id, liked: liked, likeCount: count)
+                                },
+                                onCommentCountChanged: { count in
+                                    feed.applyCommentCount(videoID: feed.videos[index].id, count: count)
+                                }
+                            )
                             .frame(height: proxy.size.height)
                             .onAppear {
                                 if index >= feed.videos.count - 2 {
@@ -104,19 +86,15 @@ struct FeedView: View {
                     .scrollTargetLayout()
                 }
                 .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $currentIndex)
                 .ignoresSafeArea()
-                .onPreferenceChange(CellDistanceKey.self) { distances in
-                    guard !feed.videos.isEmpty else { return }
-                    if let closest = distances.min(by: { $0.value < $1.value }) {
-                        if closest.key != currentIndex || currentKey == nil {
-                            activate(closest.key)
-                        }
-                    }
+                .onChange(of: currentIndex) { _, newIndex in
+                    if let newIndex { activate(newIndex) }
                 }
                 .refreshable {
                     await feed.refresh()
                     if !feed.videos.isEmpty {
-                        let target = min(currentIndex, feed.videos.count - 1)
+                        let target = min(currentIndex ?? 0, feed.videos.count - 1)
                         activate(target)
                     }
                 }
@@ -128,17 +106,17 @@ struct FeedView: View {
                 }
                 .onAppear {
                     if !feed.videos.isEmpty {
-                        activate(min(currentIndex, feed.videos.count - 1))
+                        activate(min(currentIndex ?? 0, feed.videos.count - 1))
                     }
                 }
                 .onDisappear {
-                    playerModel.pause()
+                    playerModel.removeAll()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase != .active {
                         playerModel.pause()
                     } else if !feed.videos.isEmpty {
-                        activate(min(currentIndex, feed.videos.count - 1))
+                        activate(min(currentIndex ?? 0, feed.videos.count - 1))
                     }
                 }
 
@@ -163,6 +141,12 @@ struct FeedView: View {
                 Text(feed.errorMessage ?? "")
             }
         }
+    }
+
+    private func activate(_ index: Int) {
+        guard feed.videos.indices.contains(index) else { return }
+        currentIndex = index
+        playerModel.activate(video: feed.videos[index], videos: feed.videos, index: index)
     }
 
     private var followingEmptyState: some View {
@@ -192,27 +176,6 @@ struct FeedView: View {
         }
         .padding(.horizontal, 32)
     }
-
-    private func activate(_ index: Int) {
-        currentIndex = index
-        let video = feed.videos[index]
-        if currentKey != video.key {
-            currentKey = video.key
-            playerModel.play(video)
-        } else {
-            playerModel.play()
-        }
-        preloadWindow(around: index)
-    }
-
-    private func preloadWindow(around index: Int) {
-        for offset in 1...3 {
-            let next = index + offset
-            if feed.videos.indices.contains(next) {
-                playerModel.cache(feed.videos[next])
-            }
-        }
-    }
 }
 
 private struct ProfileTarget: Identifiable {
@@ -222,6 +185,7 @@ private struct ProfileTarget: Identifiable {
 struct VideoCell: View {
     let video: Video
     @ObservedObject var playerModel: PlayerModel
+    let isActive: Bool
     var onUserTap: (() -> Void)? = nil
     var onLikeChanged: ((Bool, Int) -> Void)? = nil
     var onCommentCountChanged: ((Int) -> Void)? = nil
@@ -235,12 +199,14 @@ struct VideoCell: View {
     init(
         video: Video,
         playerModel: PlayerModel,
+        isActive: Bool,
         onUserTap: (() -> Void)? = nil,
         onLikeChanged: ((Bool, Int) -> Void)? = nil,
         onCommentCountChanged: ((Int) -> Void)? = nil
     ) {
         self.video = video
         self.playerModel = playerModel
+        self.isActive = isActive
         self.onUserTap = onUserTap
         self.onLikeChanged = onLikeChanged
         self.onCommentCountChanged = onCommentCountChanged
@@ -251,12 +217,14 @@ struct VideoCell: View {
     var body: some View {
         ZStack {
             Color.black
-            PlayerLayerView(player: playerModel.player)
-                .clipped()
+            if isActive, let player = playerModel.player(for: video) {
+                PlayerLayerView(player: player)
+                    .clipped()
 
-            if playerModel.isLoading {
-                ProgressView()
-                    .tint(.white)
+                if playerModel.isLoading {
+                    ProgressView()
+                        .tint(.white)
+                }
             }
 
             VStack {
@@ -316,15 +284,18 @@ struct VideoCell: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            muteButton
-                .padding(.top, 56)
-                .padding(.trailing, 12)
+            if isActive {
+                muteButton
+                    .padding(.top, 56)
+                    .padding(.trailing, 12)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             triggerLikeHeart()
         }
         .onTapGesture(count: 1) {
+            guard isActive else { return }
             playerModel.togglePlay()
         }
         .ignoresSafeArea()
